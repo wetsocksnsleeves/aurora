@@ -5,6 +5,7 @@ import {
   audioStart,
   clampAudioOffsetMs,
   clickContextTimes,
+  clickTimesForShow,
   contextTimeForShowMs,
   parseAudioOffsetMs,
   type AudioClockSample,
@@ -179,5 +180,13 @@ describe("audioDriftMs", () => {
     const origin = contextTimeForShowMs(0, base);
     const corrected = { ...base, serverNowMs: 11_080, ctxTimeS: 7 };
     expect(audioDriftMs(origin, corrected)).toBeCloseTo(-20, 6);
+  });
+});
+
+describe("clickTimesForShow", () => {
+  it("clicks once per distinct clip start, in order", () => {
+    const clips = [{ startMs: 2_000 }, { startMs: 0 }, { startMs: 2_000 }];
+    expect(clickTimesForShow({ clips })).toEqual([0, 2_000]);
+    expect(clickTimesForShow({ clips: [] })).toEqual([]);
   });
 });

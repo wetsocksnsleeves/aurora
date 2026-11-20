@@ -15,7 +15,7 @@ The order puts the risky part first: sync is built and measured before the edito
 | 4 | `ClockSync` and the handshake | 2. Sync | 2 | [x] |
 | 5 | Start, stop, and rAF playback | 2. Sync | 3, 4 | [x] |
 | 6 | Simulated-client harness | 2. Sync | 5 | [x] |
-| 7 | Playwright browser sync test | 2. Sync | 5 | [ ] |
+| 7 | Playwright browser sync test | 2. Sync | 5 | dropped |
 | 8 | Schedule compiler: fill, polygons, layers | 3. Schedule compiler | 1 | [x] |
 | 9 | Schedule compiler: moving shapes and fades | 3. Schedule compiler | 8 | [x] |
 | 10 | Show storage and API | 5. Save and host | 0 | [x] |
@@ -24,7 +24,7 @@ The order puts the risky part first: sync is built and measured before the edito
 | 13 | Editor: clip tools | 4. Editor | 9, 11, 12 | [x] |
 | 14 | Editor: preview | 4. Editor | 13 | [x] |
 | 15 | Show list and host flow with audio | 5. Save and host | 5, 10, 14 | [x] |
-| 16 | Real-device test | 6. Real-device test | 15 | [ ] |
+| 16 | Real-device test | 6. Real-device test | 15 | [x] kit ready, measurement pending |
 
 Chunks 8 to 10 do not depend on sync, so they can run in parallel with 4 to 7 if two people are working.
 
@@ -130,6 +130,8 @@ Done when: `npx tsx scripts/sim.ts --clients 500` passes with default faults, an
 
 ### Chunk 7. Playwright browser sync test
 
+Status: dropped. The user dropped this chunk on 2026-11-21 because the 500-client simulated harness (chunk 6, #24) covers sync at scale.
+
 Build: 3 to 5 browser contexts with mobile emulation run `/j/[code]` end to end. Each records the wall-clock time of every colour change. The test asserts a p95 spread under 50 ms (6.3).
 
 Done when: it passes with `npm run test:e2e` locally.
@@ -221,6 +223,8 @@ Build: a test show of hard black and white flashes at 1 Hz.
 Run: 5 to 10 phones (mixed iOS and Android), on venue-like wifi and on mobile data, filmed at 240 fps (6.4). Count frames between the first and last phone to change. Tune the audio offset slider by ear and camera against the flashes.
 
 Done when: results are written to `docs/device-test.md`, with the spread per flash and any device that was consistently late.
+
+Status: kit ready, measurement pending. The "Device test (1 Hz flashes)" built-in show, the host click track, `scripts/flash-frames.ts` and the procedure in [docs/device-test.md](docs/device-test.md) are in place. The phone measurements have not been run yet.
 
 ## Decisions
 

@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import type { WebSocketServer } from "ws";
 import { compileSchedule } from "@/lib/compile";
+import { DEVICE_TEST_SHOW } from "@/lib/device-test-show";
 import { TEST_SHOW, TEST_VENUE } from "@/lib/test-show";
 import type { Clip, Show } from "@/lib/types";
 import { closeCompilePool } from "./compile-pool";
@@ -184,11 +185,15 @@ describe("hosting a saved show", () => {
     expect(second.hostToken).toBeUndefined();
   });
 
-  it("still hosts the built-in test show and rejects unknown ids", async () => {
+  it("hosts the built-in test shows and rejects unknown ids", async () => {
     const { url } = await listen();
     const host = await connect(url);
     host.send({ type: "host", showId: TEST_SHOW.id });
     expect((await host.next("session")).show).toEqual(TEST_SHOW);
+
+    const device = await connect(url);
+    device.send({ type: "host", showId: DEVICE_TEST_SHOW.id });
+    expect((await device.next("session")).show).toEqual(DEVICE_TEST_SHOW);
 
     const other = await connect(url);
     other.send({ type: "host", showId: "no-such-show" });

@@ -96,6 +96,16 @@ export function audioStart(
 }
 
 /**
+ * Show times for the host's click track: the start of every clip, sorted,
+ * without repeats. For the device test show that is each flash.
+ */
+export function clickTimesForShow(show: {
+  clips: readonly { startMs: number }[];
+}): number[] {
+  return [...new Set(show.clips.map((c) => c.startMs))].sort((a, b) => a - b);
+}
+
+/**
  * Context times for clicks at the given show times. Clicks that would sound
  * before `ctxTimeS + leadS` are dropped (they are in the past).
  */
