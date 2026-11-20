@@ -8,7 +8,7 @@ The order puts the risky part first: sync is built and measured before the edito
 
 | # | Chunk | Milestone | Depends on | Status |
 | --- | --- | --- | --- | --- |
-| 0 | Scaffold: Next.js + custom server + WebSocket | — | — | [ ] |
+| 0 | Scaffold: Next.js + custom server + WebSocket | — | — | [x] |
 | 1 | Protocol types and session store | 1. Join and standby | 0 | [ ] |
 | 2 | Participant page: join, seat, ready | 1. Join and standby | 1 | [ ] |
 | 3 | Host screen: QR code and live dots | 1. Join and standby | 1 | [ ] |
