@@ -12,6 +12,11 @@ export { pointInPolygon };
 export const VENUE_ASPECT = 1;
 
 export type Size = { width: number; height: number };
+
+/** Smallest rectangle side, in pixels, that counts as a drawn rectangle. */
+export const MIN_RECT_PX = 4;
+/** Clicking within this many pixels of the first point closes a polygon. */
+export const CLOSE_POLYGON_PX = 10;
 export type PixelPoint = { x: number; y: number };
 
 export function clamp01(value: number): number {

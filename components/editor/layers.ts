@@ -1,4 +1,5 @@
-import type { Point } from "@/lib/types";
+import { clipDraftLayer, clipOverlayLayer } from "./clip-layers";
+import { COLORS, tracePolygon } from "./draw";
 import { toPx, type Size } from "./geometry";
 import type { EditorState } from "./store";
 
@@ -19,29 +20,7 @@ export type CanvasLayer = {
   draw(layer: LayerContext): void;
 };
 
-export const COLORS = {
-  background: "#111118",
-  grid: "rgba(255,255,255,0.05)",
-  venueFill: "rgba(110,231,183,0.12)",
-  venueStroke: "rgba(110,231,183,0.7)",
-  selected: "#fbbf24",
-  draft: "#60a5fa",
-};
-
-/** Trace a closed polygon path in pixel space. */
-export function tracePolygon(
-  ctx: CanvasRenderingContext2D,
-  points: Point[],
-  size: Size,
-): void {
-  ctx.beginPath();
-  points.forEach((p, i) => {
-    const { x, y } = toPx(p, size);
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.closePath();
-}
+export { COLORS, tracePolygon };
 
 export const backgroundLayer: CanvasLayer = {
   id: "background",
@@ -134,13 +113,15 @@ export const draftLayer: CanvasLayer = {
 };
 
 /**
- * Layers bottom to top. Chunk 13 inserts its clip overlay after `venueLayer`,
- * chunk 14 its preview dots after that; the editor passes the list to
- * `<VenueCanvas layers>`.
+ * Layers bottom to top: the clip overlay (clip-layers.ts) sits on the venue,
+ * under the venue selection and drafts. Chunk 14 adds its preview dots after
+ * the clip overlay. The editor passes the list to `<VenueCanvas layers>`.
  */
 export const DEFAULT_LAYERS: CanvasLayer[] = [
   backgroundLayer,
   venueLayer,
+  clipOverlayLayer,
   selectionLayer,
   draftLayer,
+  clipDraftLayer,
 ];
