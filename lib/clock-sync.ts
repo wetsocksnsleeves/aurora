@@ -57,6 +57,12 @@ export interface ClockSyncDeps {
   onChange?: (state: ClockSyncState) => void;
 }
 
+/**
+ * Everything `ClockSync` needs except `send` and `onChange`: the local clock
+ * and timers. Clients that own a socket take this and supply `send`.
+ */
+export type ClockSyncEnv = Omit<ClockSyncDeps, "send" | "onChange">;
+
 export interface ClockSample {
   rtt: number;
   offset: number;

@@ -30,6 +30,8 @@ describe("parseClientMessage", () => {
       { type: "seat", x: 0, y: 1 },
       { type: "ready" },
       { type: "sync", c0: 123.456 },
+      { type: "clock", ready: true, degraded: false, rttMs: 42 },
+      { type: "clock", ready: false, degraded: false, rttMs: null },
       { type: "host", showId: "test" },
       { type: "host", code: "ABCDEF" },
       { type: "host", code: "ABCDEF", hostToken: "secret" },
@@ -67,6 +69,9 @@ describe("parseClientMessage", () => {
     badClient('{"type":"seat","x":-0.1,"y":0.5}');
     badClient('{"type":"sync"}');
     badClient('{"type":"sync","c0":null}');
+    badClient('{"type":"clock","degraded":false,"rttMs":1}');
+    badClient('{"type":"clock","ready":"yes","degraded":false,"rttMs":1}');
+    badClient('{"type":"clock","ready":true,"degraded":false,"rttMs":-1}');
     badClient('{"type":"host"}');
     badClient('{"type":"host","showId":"a","code":"b"}');
   });
