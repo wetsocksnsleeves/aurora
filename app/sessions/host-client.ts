@@ -29,6 +29,9 @@ import { browserClockEnv } from "../browser-clock";
  *   session and the throttled `participants` list in a snapshot. Without a
  *   stored token it does not connect and reports `no-token`.
  *
+ * `startShow` / `stopShow` send Start and Stop; the server answers `start`
+ * and `stop` (tracked as `T0`) or an `error` (kept in `lastError`).
+ *
  * The host runs its own `ClockSync` over the same `sync` message (SPEC 4.8),
  * started on every open and stopped on close, so it can colour playing dots
  * and (chunk 15) schedule audio at `T0` with `client.clock.serverNow()`.
@@ -67,6 +70,8 @@ export type HostSnapshot = {
   T0: number | null;
   /** The host's own `ClockSync` passed its ready gate. */
   clockReady: boolean;
+  /** The last refused request, e.g. Start with nobody in standby. */
+  lastError: string | null;
   fatal: HostFatal | null;
 };
 
@@ -127,6 +132,7 @@ export class HostClient {
       participants: [],
       T0: null,
       clockReady: false,
+      lastError: null,
       fatal: null,
     };
     this.clock = new ClockSync({
@@ -167,6 +173,18 @@ export class HostClient {
     this.dropSocket();
     this.emitClose(false);
     this.update({ connection: "closed" });
+  }
+
+  /** Ask the server to start the show (SPEC 4.6). Returns whether it was sent. */
+  startShow(): boolean {
+    this.update({ lastError: null });
+    return this.send({ type: "start" });
+  }
+
+  /** Ask the server to stop the show. Returns whether it was sent. */
+  stopShow(): boolean {
+    this.update({ lastError: null });
+    return this.send({ type: "stop" });
   }
 
   /** Call on `visibilitychange`: a returning tab resyncs its clock. */
@@ -249,7 +267,7 @@ export class HostClient {
         this.update({ participants: message.list });
         return;
       case "start":
-        this.update({ T0: message.T0 });
+        this.update({ T0: message.T0, lastError: null });
         return;
       case "stop":
         this.update({ T0: null });
@@ -260,7 +278,9 @@ export class HostClient {
           message.reason === "unknown-session"
         ) {
           this.fail(message.reason);
+          return;
         }
+        this.update({ lastError: message.message });
         return;
       default:
         return;

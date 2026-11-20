@@ -346,9 +346,12 @@ describe("ParticipantClient", () => {
     t.last().receive(schedule);
     t.syncClock();
     t.last().receive({ type: "start", T0: 12_345 });
+    expect(t.client.getSnapshot().T0).toBe(12_345);
     expect(participantScreen(t.client.getSnapshot())).toBe("playing");
+    // Stop goes back to standby, ready for another start.
     t.last().receive({ type: "stop" });
-    expect(participantScreen(t.client.getSnapshot())).toBe("over");
+    expect(t.client.getSnapshot().T0).toBeNull();
+    expect(participantScreen(t.client.getSnapshot())).toBe("standby");
   });
 });
 
@@ -455,6 +458,33 @@ describe("ParticipantClient clock sync", () => {
     t.syncClock();
     expect(participantScreen(t.client.getSnapshot())).toBe("standby");
     expect(t.last().clockReports.at(-1)).toMatchObject({ ready: true });
+  });
+
+  it("a reload mid-show resumes playing from welcome's T0", () => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      storageKey("ABC234"),
+      JSON.stringify({ participantId: "p1", resumeToken: "tok1" }),
+    );
+    const t = setup(storage);
+    t.client.start();
+    t.tick();
+    t.last().open();
+    t.last().receive(
+      welcome({
+        state: {
+          participant: "syncing",
+          seat: { x: 0.1, y: 0.3 },
+          T0: 4_000,
+        },
+      }),
+    );
+    t.last().receive(schedule);
+    expect(t.client.getSnapshot().T0).toBe(4_000);
+    // Playing screen at once; it paints black until the clock is ready.
+    expect(participantScreen(t.client.getSnapshot())).toBe("playing");
+    t.syncClock();
+    expect(t.client.clock.serverNow() - 4_000).toBeGreaterThan(0);
   });
 
   it("stays dark (playing screen) while the clock resyncs during a show", () => {

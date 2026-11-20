@@ -7,7 +7,43 @@ import {
   type ClientMessage,
   type ServerMessage,
 } from "./protocol";
-import { TEST_VENUE } from "./test-show";
+import { TEST_SHOW, TEST_VENUE } from "./test-show";
+import type { Show } from "./types";
+
+/** A show with every clip variant, for round-trips. */
+const SHOW: Show = {
+  ...TEST_SHOW,
+  clips: [
+    ...TEST_SHOW.clips.slice(0, 1),
+    {
+      id: "fill",
+      layer: 2,
+      startMs: 0,
+      endMs: 500,
+      color: "#123456",
+      fadeInMs: 10,
+      fadeOutMs: 20,
+      shape: { kind: "fill" },
+    },
+    {
+      id: "still",
+      layer: 1,
+      startMs: 0,
+      endMs: 500,
+      color: "#abc",
+      fadeInMs: 0,
+      fadeOutMs: 0,
+      shape: {
+        kind: "polygon",
+        points: [
+          { x: 0, y: 0 },
+          { x: 1, y: 1 },
+          { x: 0, y: 1 },
+        ],
+      },
+    },
+  ],
+};
 
 const okClient = (value: unknown) => {
   const result = parseClientMessage(JSON.stringify(value));
@@ -112,6 +148,7 @@ describe("parseServerMessage", () => {
         showId: "test",
         venue: TEST_VENUE,
         T0: null,
+        show: SHOW,
       },
       {
         type: "session",
@@ -120,6 +157,7 @@ describe("parseServerMessage", () => {
         showId: "test",
         venue: TEST_VENUE,
         T0: 5,
+        show: TEST_SHOW,
         hostToken: "secret",
       },
       {
@@ -144,6 +182,8 @@ describe("parseServerMessage", () => {
         ],
       },
       { type: "error", reason: "unknown-session", message: "no session" },
+      { type: "error", reason: "no-standby", message: "nobody ready" },
+      { type: "error", reason: "show-running", message: "already" },
     ];
     for (const message of messages) {
       const result = parseServerMessage(encodeMessage(message));
@@ -159,6 +199,21 @@ describe("parseServerMessage", () => {
     expect(
       parseServerMessage(
         '{"type":"participants","list":[{"id":"p","state":"dancing"}]}',
+      ).ok,
+    ).toBe(false);
+    const session = {
+      type: "session",
+      code: "ABCDEF",
+      joinUrl: "https://x.example/j/ABCDEF",
+      showId: "test",
+      venue: TEST_VENUE,
+      T0: null,
+    };
+    expect(parseServerMessage(JSON.stringify(session)).ok).toBe(false);
+    const badClip = { ...SHOW.clips[0], shape: { kind: "circle" } };
+    expect(
+      parseServerMessage(
+        JSON.stringify({ ...session, show: { ...SHOW, clips: [badClip] } }),
       ).ok,
     ).toBe(false);
   });

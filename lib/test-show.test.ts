@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { SAMPLE_MS, colorAt, compileSchedule } from "./compile";
 import {
   TEST_FLASH_MS,
   TEST_SHOW,
   TEST_SHOW_DURATION_MS,
   TEST_WAVE_COUNT,
+  TEST_WAVE_PERIOD_MS,
   TEST_WAVE_SWEEP_MS,
   testSchedule,
 } from "./test-show";
@@ -49,5 +51,32 @@ describe("testSchedule", () => {
   it("the test show lasts as long as the wave", () => {
     expect(TEST_SHOW.audio.durationMs).toBe(TEST_SHOW_DURATION_MS);
     expect(TEST_SHOW.venue.shapes).toHaveLength(2);
+  });
+});
+
+describe("TEST_SHOW clips", () => {
+  it("compile to the test wave, within one 20 ms sample", () => {
+    for (const x of [0.06, 0.2, 0.33, 0.45, 0.55, 0.71, 0.9, 0.95]) {
+      const seat = { x, y: 0.5 };
+      const compiled = compileSchedule(TEST_SHOW, seat);
+      const wave = testSchedule(seat).events;
+      expect(compiled.durationMs).toBe(TEST_SHOW_DURATION_MS);
+      expect(compiled.events.map((e) => e.color)).toEqual(
+        wave.map((e) => e.color),
+      );
+      compiled.events.forEach((e, i) => {
+        expect(Math.abs(e.tMs - wave[i]!.tMs)).toBeLessThan(SAMPLE_MS);
+      });
+    }
+  });
+
+  it("colorAt agrees with the test wave mid-flash and between flashes", () => {
+    const seat = { x: 0.3, y: 0.5 };
+    const flashAt = 2 * TEST_WAVE_PERIOD_MS + 0.3 * TEST_WAVE_SWEEP_MS;
+    expect(colorAt(TEST_SHOW, seat, flashAt + 100)).toBe("#ffffff");
+    expect(colorAt(TEST_SHOW, seat, flashAt - 100)).toBe("#000000");
+    expect(colorAt(TEST_SHOW, seat, flashAt + TEST_FLASH_MS + 50)).toBe(
+      "#000000",
+    );
   });
 });

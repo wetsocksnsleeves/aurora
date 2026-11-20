@@ -1,8 +1,11 @@
 import {
   PARTICIPANT_STATES,
+  type Clip,
+  type ClipShape,
   type ParticipantState,
   type Point,
   type ScheduleEvent,
+  type Show,
   type Venue,
 } from "./types";
 
@@ -68,10 +71,13 @@ export type HostMessage =
   | { type: "host"; showId: string }
   | { type: "host"; code: string; hostToken?: string };
 
-/** Host clicked Start. */
+/**
+ * Host clicked Start. Refused with `no-standby` unless at least one
+ * participant is in standby, and with `show-running` while a show runs.
+ */
 export type StartRequest = { type: "start" };
 
-/** Host clicked Stop. */
+/** Host clicked Stop. Participants go dark and back to standby. */
 export type StopRequest = { type: "stop" };
 
 export type ClientMessage =
@@ -122,16 +128,23 @@ export type ScheduleMessage = {
   durationMs: number;
 };
 
-/** Show starts at `T0` on the server clock. Sent to participants and host. */
+/**
+ * Show starts at `T0` on the server clock (SPEC 4.6), `START_LEAD_MS` after
+ * the host clicked Start. Sent to every participant and host. Show time is
+ * `serverNow() - T0`.
+ */
 export type StartMessage = { type: "start"; T0: number };
 
+/** The host stopped the show; `T0` is cleared. Sent to participants and hosts. */
 export type StopMessage = { type: "stop" };
 
 /**
- * Sent to the host after `host`. `venue` and `T0` are extras beyond SPEC 5.2
- * so a reloaded host page can redraw the map and resume. `hostToken` is set
- * only in the reply to the `host { showId }` that created the session; keep
- * it (sessionStorage) to re-attach.
+ * Sent to the host after `host`. `venue`, `T0` and `show` are extras beyond
+ * SPEC 5.2 so a reloaded host page can redraw the map and resume. `show` is
+ * the session's show snapshot, so the host can colour playing dots with
+ * `colorAt` and (chunk 15) find the audio. `hostToken` is set only in the
+ * reply to the `host { showId }` that created the session; keep it
+ * (sessionStorage) to re-attach.
  */
 export type SessionMessage = {
   type: "session";
@@ -140,6 +153,7 @@ export type SessionMessage = {
   showId: string;
   venue: Venue;
   T0: number | null;
+  show: Show;
   hostToken?: string;
 };
 
@@ -167,6 +181,10 @@ export const ERROR_REASONS = [
   "not-host",
   "no-seat",
   "unsupported",
+  /** `start` with no participant in standby. */
+  "no-standby",
+  /** `start` while a show is already running. */
+  "show-running",
 ] as const;
 
 export type ErrorReason = (typeof ERROR_REASONS)[number];
@@ -348,6 +366,7 @@ function toServerMessage(v: Rec): ServerMessage {
         showId: str(v, "showId"),
         venue: venue(v.venue),
         T0: nullableNum(v, "T0"),
+        show: show(v.show),
       };
       if (v.hostToken !== undefined && v.hostToken !== null) {
         msg.hostToken = str(v, "hostToken");
@@ -459,6 +478,61 @@ function venue(value: unknown): Venue {
       return { id: str(shape, "id"), points: arr(shape, "points").map(point) };
     }),
   };
+}
+
+/** A string that may be empty (e.g. a show without audio has fileId ""). */
+function text(v: Rec, key: string): string {
+  const value = v[key];
+  if (typeof value !== "string") {
+    throw new InvalidMessage(`\`${key}\` must be a string`);
+  }
+  return value;
+}
+
+function show(value: unknown): Show {
+  if (!isRecord(value)) throw new InvalidMessage("`show` must be an object");
+  const audio = rec(value, "audio");
+  return {
+    id: str(value, "id"),
+    name: text(value, "name"),
+    venue: venue(value.venue),
+    audio: {
+      fileId: text(audio, "fileId"),
+      durationMs: num(audio, "durationMs"),
+    },
+    clips: arr(value, "clips").map(clip),
+    createdAt: text(value, "createdAt"),
+    updatedAt: text(value, "updatedAt"),
+  };
+}
+
+function clip(value: unknown): Clip {
+  if (!isRecord(value)) throw new InvalidMessage("clip must be an object");
+  return {
+    id: str(value, "id"),
+    layer: num(value, "layer"),
+    startMs: num(value, "startMs"),
+    endMs: num(value, "endMs"),
+    color: str(value, "color"),
+    fadeInMs: num(value, "fadeInMs"),
+    fadeOutMs: num(value, "fadeOutMs"),
+    shape: clipShape(rec(value, "shape")),
+  };
+}
+
+function clipShape(v: Rec): ClipShape {
+  if (v.kind === "fill") return { kind: "fill" };
+  if (v.kind !== "polygon") {
+    throw new InvalidMessage("clip `shape.kind` must be fill or polygon");
+  }
+  const shape: ClipShape = {
+    kind: "polygon",
+    points: arr(v, "points").map(point),
+  };
+  if (v.moveTo !== undefined && v.moveTo !== null) {
+    shape.moveTo = point(v.moveTo);
+  }
+  return shape;
 }
 
 function scheduleEvent(value: unknown): ScheduleEvent {

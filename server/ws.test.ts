@@ -3,18 +3,16 @@ import type { AddressInfo } from "node:net";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import type { WebSocketServer } from "ws";
 import { compileSchedule } from "@/lib/compile";
-import {
-  TEST_SHOW,
-  TEST_SHOW_DURATION_MS,
-  testSchedule,
-} from "@/lib/test-show";
+import { TEST_SHOW, TEST_SHOW_DURATION_MS } from "@/lib/test-show";
 import type { Show } from "@/lib/types";
 import { closeCompilePool, compileInWorker } from "./compile-pool";
 import { SessionStore } from "./sessions";
 import { rawUpgrade } from "./testing/raw-upgrade";
 import { TestClient } from "./testing/ws-client";
 import {
+  DEFAULT_START_LEAD_MS,
   attachWebSocketServer,
+  startLeadMsFromEnv,
   type AttachOptions,
   type UpgradeHandler,
 } from "./ws";
@@ -28,7 +26,8 @@ afterEach(async () => {
   clients = [];
   wss?.close();
   server?.closeAllConnections();
-  await new Promise<void>((resolve) => server?.close(() => resolve()));
+  if (server)
+    await new Promise<void>((resolve) => server!.close(() => resolve()));
   server = undefined;
   wss = undefined;
 });
@@ -286,7 +285,10 @@ describe("message routing", () => {
     phone.send({ type: "ready" });
     const schedule = await phone.next("schedule");
     expect(schedule.durationMs).toBe(TEST_SHOW_DURATION_MS);
-    expect(schedule.events).toEqual(testSchedule({ x: 0.25, y: 0.5 }).events);
+    // Compiled from the show's clips on a worker (the default).
+    expect(schedule.events).toEqual(
+      compileSchedule(TEST_SHOW, { x: 0.25, y: 0.5 }).events,
+    );
 
     // Schedule in, clock not ready yet: still syncing.
     let latest = await host.next("participants");
@@ -315,7 +317,9 @@ describe("message routing", () => {
     await phone.next("schedule");
     phone.send({ type: "seat", x: 0.9, y: 0.5 });
     const moved = await phone.next("schedule");
-    expect(moved.events).toEqual(testSchedule({ x: 0.9, y: 0.5 }).events);
+    expect(moved.events).toEqual(
+      compileSchedule(TEST_SHOW, { x: 0.9, y: 0.5 }).events,
+    );
   });
 
   it("reconnect with the previous participantId keeps the participant", async () => {
@@ -479,14 +483,176 @@ describe("message routing", () => {
     expect(count).toBeLessThanOrEqual(2);
     expect(Date.now() - sentAt).toBeLessThan(1_000);
   });
+});
 
-  it("start and stop are refused until chunk 5", async () => {
-    const { url } = await listen();
-    const client = await connect(url);
-    for (const message of [{ type: "start" }, { type: "stop" }] as const) {
-      client.send(message);
-      expect((await client.next("error")).reason).toBe("unsupported");
+/** A phone joined, seated, ready and with a ready clock: standby. */
+async function standbyPhone(url: string, code: string, x = 0.5) {
+  const phone = await connect(url);
+  phone.send({ type: "join", code });
+  const welcome = await phone.next("welcome");
+  phone.send({ type: "seat", x, y: 0.5 });
+  phone.send({ type: "ready" });
+  await phone.next("schedule", 5_000);
+  phone.send(CLOCK_READY);
+  return { phone, id: welcome.participantId };
+}
+
+describe("start and stop", () => {
+  it("start broadcasts the same T0, START_LEAD_MS ahead, to everyone", async () => {
+    let clock = 50_000;
+    const { url, store } = await listen({ now: () => clock, startLeadMs: 900 });
+    const { host, code } = await hostSession(url);
+    const second = await connect(url);
+    second.send({
+      type: "host",
+      code,
+      hostToken: store.getSession(code)!.hostToken,
+    });
+    await second.next("session");
+    const a = await standbyPhone(url, code, 0.2);
+    const b = await standbyPhone(url, code, 0.8);
+    // A participant who has not tapped Ready still learns T0.
+    const idle = await connect(url);
+    idle.send({ type: "join", code });
+    await idle.next("welcome");
+    const session = store.getSession(code)!;
+    await vi.waitFor(() => expect(store.countByState(session).standby).toBe(2));
+
+    clock = 60_000;
+    host.send({ type: "start" });
+    const starts = await Promise.all(
+      [a.phone, b.phone, idle, host, second].map((c) => c.next("start")),
+    );
+    expect(starts.map((m) => m.T0)).toEqual(Array(5).fill(60_900));
+    expect(session.T0).toBe(60_900);
+    await vi.waitFor(() =>
+      expect(store.getParticipant(session, a.id).state).toBe("playing"),
+    );
+    let latest = await host.next("participants");
+    while (!latest.list.some((p) => p.state === "playing")) {
+      latest = await host.next("participants");
     }
+
+    // A second start while running is refused and keeps T0.
+    host.send({ type: "start" });
+    expect((await host.next("error")).reason).toBe("show-running");
+    expect(session.T0).toBe(60_900);
+  });
+
+  it("a late joiner and a reconnecting phone get T0 in welcome", async () => {
+    const { url, store } = await listen();
+    const { host, code } = await hostSession(url);
+    const early = await standbyPhone(url, code);
+    const session = store.getSession(code)!;
+    await vi.waitFor(() => expect(store.countByState(session).standby).toBe(1));
+    host.send({ type: "start" });
+    const { T0 } = await host.next("start");
+
+    const late = await connect(url);
+    late.send({ type: "join", code });
+    expect((await late.next("welcome")).state.T0).toBe(T0);
+    // Ready during the show: playing as soon as the clock is ready.
+    late.send({ type: "seat", x: 0.3, y: 0.5 });
+    late.send({ type: "ready" });
+    await late.next("schedule", 5_000);
+    late.send(CLOCK_READY);
+    const lateId = late.all("welcome")[0]!.participantId;
+    await vi.waitFor(() =>
+      expect(store.getParticipant(session, lateId).state).toBe("playing"),
+    );
+
+    // A reconnect resumes with T0 and its schedule.
+    const welcome = early.phone.all("welcome")[0]!;
+    await early.phone.close();
+    const again = await connect(url);
+    again.send({
+      type: "join",
+      code,
+      participantId: welcome.participantId,
+      resumeToken: welcome.resumeToken,
+    });
+    const rejoined = await again.next("welcome");
+    expect(rejoined.state.T0).toBe(T0);
+    await again.next("schedule");
+
+    // A re-attaching host gets T0 in session.
+    const host2 = await connect(url);
+    host2.send({ type: "host", code, hostToken: session.hostToken });
+    expect((await host2.next("session")).T0).toBe(T0);
+  });
+
+  it("stop broadcasts and clears T0; participants return to standby", async () => {
+    const { url, store } = await listen();
+    const { host, code } = await hostSession(url);
+    const { phone, id } = await standbyPhone(url, code);
+    const session = store.getSession(code)!;
+    await vi.waitFor(() => expect(store.countByState(session).standby).toBe(1));
+    host.send({ type: "start" });
+    await phone.next("start");
+    host.send({ type: "stop" });
+    await phone.next("stop");
+    await host.next("stop");
+    expect(session.T0).toBeNull();
+    expect(store.getParticipant(session, id).state).toBe("standby");
+
+    const late = await connect(url);
+    late.send({ type: "join", code });
+    expect((await late.next("welcome")).state.T0).toBeNull();
+
+    // The show can start again.
+    host.send({ type: "start" });
+    await phone.next("start");
+  });
+
+  it("refuses start and stop from a participant or an unattached socket", async () => {
+    const { url, store } = await listen();
+    const { code } = await hostSession(url);
+    const { phone } = await standbyPhone(url, code);
+    const session = store.getSession(code)!;
+    await vi.waitFor(() => expect(store.countByState(session).standby).toBe(1));
+    const stranger = await connect(url);
+    for (const client of [phone, stranger]) {
+      for (const type of ["start", "stop"] as const) {
+        client.send({ type });
+        expect((await client.next("error")).reason).toBe("not-host");
+      }
+    }
+    expect(session.T0).toBeNull();
+    expect(phone.all("start")).toHaveLength(0);
+  });
+
+  it("refuses start until one participant is in standby", async () => {
+    const { url, store } = await listen({ participantsThrottleMs: 0 });
+    const { host, code } = await hostSession(url);
+    host.send({ type: "start" });
+    expect((await host.next("error")).reason).toBe("no-standby");
+
+    // Schedule in but clock not ready: syncing, still refused.
+    const phone = await connect(url);
+    phone.send({ type: "join", code });
+    await phone.next("welcome");
+    phone.send({ type: "seat", x: 0.5, y: 0.5 });
+    phone.send({ type: "ready" });
+    await phone.next("schedule", 5_000);
+    host.send({ type: "start" });
+    expect((await host.next("error")).reason).toBe("no-standby");
+    expect(store.getSession(code)!.T0).toBeNull();
+
+    phone.send(CLOCK_READY);
+    await vi.waitFor(() =>
+      expect(store.countByState(store.getSession(code)!).standby).toBe(1),
+    );
+    host.send({ type: "start" });
+    expect((await phone.next("start")).T0).toBeGreaterThan(0);
+  });
+
+  it("reads START_LEAD_MS from the environment", () => {
+    expect(startLeadMsFromEnv({})).toBe(DEFAULT_START_LEAD_MS);
+    expect(DEFAULT_START_LEAD_MS).toBe(900);
+    expect(startLeadMsFromEnv({ START_LEAD_MS: "2000" })).toBe(2000);
+    expect(startLeadMsFromEnv({ START_LEAD_MS: " " })).toBe(900);
+    expect(startLeadMsFromEnv({ START_LEAD_MS: "fast" })).toBe(900);
+    expect(startLeadMsFromEnv({ START_LEAD_MS: "-5" })).toBe(900);
   });
 });
 
