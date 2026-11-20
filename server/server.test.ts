@@ -7,6 +7,12 @@ import {
   type ParticipantClientDeps,
   type SocketLike,
 } from "@/app/j/[code]/participant-client";
+import {
+  HostClient,
+  createHostedSession,
+  hostStorageKey,
+  type HostClientDeps,
+} from "@/app/sessions/host-client";
 import { rawUpgrade } from "./testing/raw-upgrade";
 import { TestClient } from "./testing/ws-client";
 import { spawnServer, type SpawnedServer } from "./testing/spawn-server";
@@ -185,5 +191,94 @@ describe("participant page", () => {
     await until(() => client.getSnapshot().fatal !== null);
     expect(participantScreen(client.getSnapshot())).toBe("not-found");
     expect(client.getSnapshot().connection).toBe("closed");
+  });
+});
+
+/** Deps that drive `HostClient` with Node's built-in WebSocket. */
+function nodeHostDeps(url: string): HostClientDeps {
+  const map = new Map<string, string>();
+  return {
+    wsUrl: url,
+    createSocket: (u) => new globalThis.WebSocket(u),
+    storage: {
+      getItem: (k) => map.get(k) ?? null,
+      setItem: (k, v) => void map.set(k, v),
+      removeItem: (k) => void map.delete(k),
+    },
+    random: () => 0,
+    setTimeout: (fn, ms) => setTimeout(fn, ms),
+    clearTimeout: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
+    reconnectBaseMs: 50,
+    reconnectMaxMs: 200,
+  };
+}
+
+describe("host page", () => {
+  it("creates a session and serves /sessions/<code>/host with 200", async () => {
+    const deps = nodeHostDeps(server.wsUrl);
+    const code = await createHostedSession("test", deps);
+    expect(deps.storage!.getItem(hostStorageKey(code))).toBeTruthy();
+    const res = await fetch(`${server.httpUrl}/sessions/${code}/host`);
+    expect(res.status).toBe(200);
+  }, 60_000);
+
+  it("HostClient re-attaches with its token and sees participants reach standby", async () => {
+    const deps = nodeHostDeps(server.wsUrl);
+    const code = await createHostedSession("test", deps);
+    const host = new HostClient(code, deps);
+    host.start();
+    const phone = await TestClient.connect(server.wsUrl);
+    try {
+      await until(() => host.getSnapshot().session !== null);
+      expect(host.getSnapshot().session?.joinUrl).toMatch(
+        new RegExp(`/j/${code}$`),
+      );
+
+      phone.send({ type: "join", code });
+      const { participantId } = await phone.next("welcome");
+      await until(() =>
+        host.getSnapshot().participants.some((p) => p.id === participantId),
+      );
+      phone.send({ type: "seat", x: 0.7, y: 0.4 });
+      phone.send({ type: "ready" });
+      await until(
+        () => host.getSnapshot().participants[0]?.state === "standby",
+      );
+      expect(host.getSnapshot().participants).toEqual([
+        {
+          id: participantId,
+          x: 0.7,
+          y: 0.4,
+          state: "standby",
+          rttMs: null,
+          degraded: false,
+        },
+      ]);
+
+      await phone.close();
+      await until(
+        () => host.getSnapshot().participants[0]?.state === "disconnected",
+      );
+    } finally {
+      host.stop();
+      await phone.close();
+    }
+  });
+
+  it("HostClient without the right token is not the host", async () => {
+    const creator = nodeHostDeps(server.wsUrl);
+    const code = await createHostedSession("test", creator);
+
+    const noToken = new HostClient(code, nodeHostDeps(server.wsUrl));
+    noToken.start();
+    expect(noToken.getSnapshot().fatal).toBe("no-token");
+
+    const wrongDeps = nodeHostDeps(server.wsUrl);
+    wrongDeps.storage!.setItem(hostStorageKey(code), "not-the-token");
+    const wrong = new HostClient(code, wrongDeps);
+    wrong.start();
+    await until(() => wrong.getSnapshot().fatal !== null);
+    expect(wrong.getSnapshot().fatal).toBe("not-host");
+    expect(wrong.getSnapshot().session).toBeNull();
   });
 });

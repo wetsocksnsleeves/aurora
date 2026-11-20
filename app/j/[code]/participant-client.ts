@@ -10,6 +10,13 @@ import type {
   ScheduleEvent,
   Venue,
 } from "@/lib/types";
+import {
+  SOCKET_OPEN,
+  backoffMs,
+  detachSocket,
+  type KeyValueStorage,
+  type SocketLike,
+} from "@/lib/client-socket";
 import { wsUrlFor } from "@/lib/ws-url";
 
 /**
@@ -28,29 +35,7 @@ import { wsUrlFor } from "@/lib/ws-url";
  * Node tests with injected deps.
  */
 
-/**
- * An event handler checked bivariantly (like a method), so the DOM's
- * `(ev: MessageEvent) => any` fits `{ data: unknown }`.
- */
-type Handler<E> = { bivarianceHack(event: E): void }["bivarianceHack"];
-
-/** The subset of `WebSocket` this client uses. Browser and Node 24 both fit. */
-export type SocketLike = {
-  readonly readyState: number;
-  send(data: string): void;
-  close(code?: number, reason?: string): void;
-  onopen: Handler<unknown> | null;
-  onmessage: Handler<{ data: unknown }> | null;
-  onclose: Handler<{ code: number; reason: string }> | null;
-  onerror: Handler<unknown> | null;
-};
-
-/** `sessionStorage` or a stand-in. */
-export type KeyValueStorage = {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
-  removeItem(key: string): void;
-};
+export type { KeyValueStorage, SocketLike };
 
 export type ParticipantClientDeps = {
   wsUrl: string;
@@ -74,8 +59,6 @@ export const DEFAULT_RECONNECT_MAX_MS = 5_000;
 
 /** Close code the server uses when a newer socket resumed this participant. */
 export const CLOSE_REPLACED = 4000;
-
-const OPEN = 1;
 
 export type ConnectionStatus =
   /** Not started, or waiting out the initial random delay. */
@@ -234,7 +217,7 @@ export class ParticipantClient {
     const socket = this.socket;
     this.socket = null;
     if (socket) {
-      detach(socket);
+      detachSocket(socket);
       socket.close(1000, "stopped");
       this.emitClose(false);
     }
@@ -261,7 +244,7 @@ export class ParticipantClient {
   /** Send a message if the socket is open. Returns whether it was sent. */
   send(message: ClientMessage): boolean {
     const socket = this.socket;
-    if (!socket || socket.readyState !== OPEN) return false;
+    if (!socket || socket.readyState !== SOCKET_OPEN) return false;
     socket.send(encodeMessage(message));
     return true;
   }
@@ -317,7 +300,7 @@ export class ParticipantClient {
     socket.onclose = (event) => {
       if (socket !== this.socket) return;
       this.socket = null;
-      detach(socket);
+      detachSocket(socket);
       if (event.code === CLOSE_REPLACED) {
         this.fail("replaced");
         return;
@@ -332,9 +315,10 @@ export class ParticipantClient {
 
   private scheduleReconnect(): void {
     if (this.stopped) return;
-    const backoff = Math.min(
+    const backoff = backoffMs(
+      this.attempt,
+      this.deps.reconnectBaseMs,
       this.deps.reconnectMaxMs,
-      this.deps.reconnectBaseMs * 2 ** this.attempt,
     );
     this.attempt += 1;
     // Jitter spreads a venue's worth of phones after a wifi blip (SPEC 4.3).
@@ -349,7 +333,7 @@ export class ParticipantClient {
     const socket = this.socket;
     this.socket = null;
     if (socket) {
-      detach(socket);
+      detachSocket(socket);
       socket.close(1000, fatal);
     }
     this.emitClose(false);
@@ -485,13 +469,6 @@ export class ParticipantClient {
 
 function samePoint(a: Point, b: Point | null): boolean {
   return b !== null && a.x === b.x && a.y === b.y;
-}
-
-function detach(socket: SocketLike): void {
-  socket.onopen = null;
-  socket.onmessage = null;
-  socket.onclose = null;
-  socket.onerror = null;
 }
 
 /** Deps for the real page. Call only in the browser. */
