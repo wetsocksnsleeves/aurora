@@ -32,6 +32,7 @@ describe("parseClientMessage", () => {
       { type: "sync", c0: 123.456 },
       { type: "host", showId: "test" },
       { type: "host", code: "ABCDEF" },
+      { type: "host", code: "ABCDEF", hostToken: "secret" },
       { type: "start" },
       { type: "stop" },
     ];
@@ -106,6 +107,15 @@ describe("parseServerMessage", () => {
         showId: "test",
         venue: TEST_VENUE,
         T0: null,
+      },
+      {
+        type: "session",
+        code: "ABCDEF",
+        joinUrl: "https://x.example/j/ABCDEF",
+        showId: "test",
+        venue: TEST_VENUE,
+        T0: 5,
+        hostToken: "secret",
       },
       {
         type: "participants",

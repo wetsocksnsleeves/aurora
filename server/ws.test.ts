@@ -57,7 +57,7 @@ async function hostSession(url: string) {
   host.send({ type: "host", showId: "test" });
   const session = await host.next("session");
   await host.next("participants");
-  return { host, code: session.code };
+  return { host, code: session.code, hostToken: session.hostToken };
 }
 
 describe("attachWebSocketServer upgrade routing", () => {
@@ -149,12 +149,45 @@ describe("message routing", () => {
     }
   });
 
-  it("host can re-attach to an existing session by code", async () => {
+  it("gives the creating host a host token", async () => {
+    const { url, store } = await listen();
+    const { code, hostToken } = await hostSession(url);
+    expect(hostToken).toBe(store.getSession(code)!.hostToken);
+    expect(hostToken).toMatch(/^[A-Za-z0-9_-]{43}$/); // 32 bytes base64url
+  });
+
+  it("host can re-attach to an existing session with its token", async () => {
     const { url } = await listen();
-    const { code } = await hostSession(url);
+    const { code, hostToken } = await hostSession(url);
     const second = await connect(url);
-    second.send({ type: "host", code: code.toLowerCase() });
-    expect((await second.next("session")).code).toBe(code);
+    second.send({ type: "host", code: code.toLowerCase(), hostToken });
+    const session = await second.next("session");
+    expect(session.code).toBe(code);
+    // Re-attaching hosts already hold the token; it is not resent.
+    expect(session.hostToken).toBeUndefined();
+    await second.next("participants");
+  });
+
+  it("refuses to re-attach a host without the right token", async () => {
+    const { url } = await listen({ participantsThrottleMs: 0 });
+    const { host, code } = await hostSession(url);
+
+    const missing = await connect(url);
+    missing.send({ type: "host", code });
+    expect((await missing.next("error")).reason).toBe("not-host");
+
+    const wrong = await connect(url);
+    wrong.send({ type: "host", code, hostToken: "x".repeat(43) });
+    expect((await wrong.next("error")).reason).toBe("not-host");
+
+    // Refused sockets are not attached: they get no participant updates.
+    const phone = await connect(url);
+    phone.send({ type: "join", code });
+    await phone.next("welcome");
+    await host.next("participants");
+    expect(missing.all("participants")).toHaveLength(0);
+    expect(wrong.all("participants")).toHaveLength(0);
+    expect(missing.all("session")).toHaveLength(0);
   });
 
   it("rejects an unknown show and an unknown session", async () => {
@@ -340,6 +373,25 @@ describe("message routing", () => {
     expect(raw.some((m) => m.includes(participantId))).toBe(true);
     expect(raw.some((m) => m.includes(resumeToken))).toBe(false);
     expect(raw.some((m) => m.includes("resumeToken"))).toBe(false);
+  });
+
+  it("never sends the host token to participants", async () => {
+    const { url } = await listen({ participantsThrottleMs: 0 });
+    const { code, hostToken } = await hostSession(url);
+    const phone = await connect(url);
+    const raw: string[] = [];
+    phone.ws.on("message", (data) => raw.push(String(data)));
+    phone.send({ type: "join", code });
+    await phone.next("welcome");
+    phone.send({ type: "seat", x: 0.5, y: 0.5 });
+    phone.send({ type: "ready" });
+    await phone.next("schedule");
+    phone.send({ type: "host", code }); // a participant trying to take over
+    expect((await phone.next("error")).reason).toBe("bad-message");
+
+    expect(hostToken).toBeTruthy();
+    expect(raw.some((m) => m.includes(hostToken!))).toBe(false);
+    expect(raw.some((m) => m.includes("hostToken"))).toBe(false);
   });
 
   it("throttles participants updates to one per window", async () => {

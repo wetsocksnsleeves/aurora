@@ -67,6 +67,13 @@ export type Session = {
   /** Snapshot of the show taken at host time (SPEC section 8). */
   show: Show;
   createdAt: number;
+  /**
+   * Secret that proves a socket is this session's host. Sent only in the
+   * `session` reply to the `host { showId }` that created the session, and
+   * required to re-attach with `host { code }`. The join code is public (it
+   * is in the QR code), so the code alone must not grant host rights.
+   */
+  hostToken: string;
   /** Server-clock start time while a show runs, else null (SPEC 4.6). */
   T0: number | null;
   participants: Map<string, Participant>;
@@ -127,6 +134,11 @@ export function newResumeToken(): string {
   return randomBytes(16).toString("base64url");
 }
 
+/** 32 random bytes as base64url. */
+export function newHostToken(): string {
+  return randomBytes(32).toString("base64url");
+}
+
 /** Constant-time comparison of a stored token with a client-supplied one. */
 export function tokensMatch(
   expected: string,
@@ -181,6 +193,7 @@ export class SessionStore {
       showId: show.id,
       show: structuredClone(show),
       createdAt: this.now(),
+      hostToken: newHostToken(),
       T0: null,
       participants: new Map(),
     };
