@@ -17,7 +17,9 @@ import {
   type KeyValueStorage,
   type SocketLike,
 } from "@/lib/client-socket";
+import { ClockSync, type ClockSyncEnv } from "@/lib/clock-sync";
 import { wsUrlFor } from "@/lib/ws-url";
+import { browserClockEnv } from "../../browser-clock";
 
 /**
  * The participant page's connection to the server, kept apart from rendering
@@ -25,11 +27,11 @@ import { wsUrlFor } from "@/lib/ws-url";
  * resume, and a snapshot of what the page should show. React reads it through
  * `subscribe` + `getSnapshot` (`useSyncExternalStore`).
  *
- * Later chunks hook in without touching the rendering:
- * - ClockSync (chunk 4): `addListener({ onOpen, onMessage })` to start a
- *   burst on every open and feed `sync` replies, `send` to ping.
- * - Playback (chunk 5): read `schedule` and `T0` from the snapshot, and
- *   `addListener({ onMessage })` for `start` / `stop`.
+ * It also owns the page's `ClockSync` (SPEC 4.2 to 4.4): a burst on every
+ * socket open, `sync` replies fed in, timers stopped on close, a reset and
+ * burst when the tab returns to visible (`setVisible`). Status changes go to
+ * the server as `clock` so standby waits for a ready clock. Playback reads
+ * `client.clock.serverNow()`.
  *
  * Browser globals are only touched in `browserDeps()`, so the class runs in
  * Node tests with injected deps.
@@ -51,6 +53,8 @@ export type ParticipantClientDeps = {
   /** Reconnect backoff: base * 2^attempt, capped, plus random jitter. */
   reconnectBaseMs: number;
   reconnectMaxMs: number;
+  /** Local clock and timers for `ClockSync` (`performance.now` in browsers). */
+  clock: ClockSyncEnv;
 };
 
 export const DEFAULT_CONNECT_DELAY_MAX_MS = 800;
@@ -98,6 +102,10 @@ export type ParticipantSnapshot = {
   T0: number | null;
   /** The host stopped a running show. */
   showOver: boolean;
+  /** `ClockSync` passed its ready gate (SPEC 4.4). Dark until then. */
+  clockReady: boolean;
+  /** Ready only through the 6 s fallback. */
+  clockDegraded: boolean;
   fatal: FatalError | null;
   /** The last non-fatal `error` message from the server, for debugging. */
   lastError: string | null;
@@ -121,7 +129,10 @@ export function participantScreen(s: ParticipantSnapshot): ParticipantScreen {
   if (s.showOver) return "over";
   if (!s.readyTapped || !s.seat) return "seat";
   if (!s.schedule) return "syncing";
-  return s.T0 !== null ? "playing" : "standby";
+  // While a show runs the playback screen paints black until the clock is
+  // ready again (SPEC 4.9), rather than switching to the syncing screen.
+  if (s.T0 !== null) return "playing";
+  return s.clockReady ? "standby" : "syncing";
 }
 
 export type ParticipantClientListener = {
@@ -134,6 +145,15 @@ export type ParticipantClientListener = {
 };
 
 type StoredResume = { participantId: string; resumeToken: string };
+
+type ClockReport = { ready: boolean; degraded: boolean; rttMs: number | null };
+
+/** What the server assumes after every (re)join. */
+const UNREPORTED_CLOCK: ClockReport = {
+  ready: false,
+  degraded: false,
+  rttMs: null,
+};
 
 /** States in which the server already knows Ready was tapped. */
 const READY_STATES: readonly ParticipantState[] = [
@@ -158,6 +178,13 @@ export class ParticipantClient {
   private stopped = false;
   private readonly subscribers = new Set<() => void>();
   private readonly listeners = new Set<ParticipantClientListener>();
+  /** A `welcome` arrived on the current socket. */
+  private joined = false;
+  /** The last clock status the server has from this socket. */
+  private reportedClock: ClockReport = UNREPORTED_CLOCK;
+
+  /** This page's estimate of the server clock. */
+  readonly clock: ClockSync;
 
   /**
    * `deps` may be a function, called on first use, so the client can be
@@ -179,9 +206,24 @@ export class ParticipantClient {
       schedule: null,
       T0: null,
       showOver: false,
+      clockReady: false,
+      clockDegraded: false,
       fatal: null,
       lastError: null,
     };
+    // Deps resolve lazily, so the clock reaches them through closures.
+    this.clock = new ClockSync({
+      now: () => this.deps.clock.now(),
+      send: (c0) => void this.send({ type: "sync", c0 }),
+      setTimeout: (fn, ms) => this.deps.clock.setTimeout(fn, ms),
+      clearTimeout: (h) => this.deps.clock.clearTimeout(h),
+      setInterval: (fn, ms) => this.deps.clock.setInterval(fn, ms),
+      clearInterval: (h) => this.deps.clock.clearInterval(h),
+      onChange: ({ ready, degraded }) => {
+        this.update({ clockReady: ready, clockDegraded: degraded });
+        this.reportClock();
+      },
+    });
   }
 
   private get deps(): ParticipantClientDeps {
@@ -214,6 +256,8 @@ export class ParticipantClient {
     this.stopped = true;
     this.started = false;
     this.clearTimer();
+    this.clock.stop();
+    this.joined = false;
     const socket = this.socket;
     this.socket = null;
     if (socket) {
@@ -259,6 +303,16 @@ export class ParticipantClient {
     this.send({ type: "seat", x: seat.x, y: seat.y });
   }
 
+  /**
+   * Call on `visibilitychange`. On return to visible the clock's samples are
+   * stale (the tab may have slept), so they are cleared and a burst starts;
+   * the clock is not ready, and the page dark, until it passes again.
+   */
+  setVisible(visible: boolean): void {
+    if (!visible || this.stopped || !this.started) return;
+    this.clock.onVisible();
+  }
+
   /** Tap Ready. Needs a seat. Sent now, or on reconnect. */
   ready(): void {
     if (!this.snapshot.seat || this.snapshot.readyTapped) return;
@@ -281,6 +335,7 @@ export class ParticipantClient {
     this.socket = socket;
     socket.onopen = () => {
       if (socket !== this.socket) return;
+      this.joined = false;
       this.update({ connection: "open" });
       for (const l of this.listeners) l.onOpen?.();
       const resume = this.readResume();
@@ -289,6 +344,8 @@ export class ParticipantClient {
         code: this.snapshot.code,
         ...(resume ?? {}),
       });
+      // Burst of pings (SPEC 4.3). Replies may arrive before `welcome`.
+      this.clock.start();
     };
     socket.onmessage = (event) => {
       if (socket !== this.socket || typeof event.data !== "string") return;
@@ -301,6 +358,9 @@ export class ParticipantClient {
       if (socket !== this.socket) return;
       this.socket = null;
       detachSocket(socket);
+      // Samples are kept for the reconnect; only the timers stop.
+      this.clock.stop();
+      this.joined = false;
       if (event.code === CLOSE_REPLACED) {
         this.fail("replaced");
         return;
@@ -330,6 +390,8 @@ export class ParticipantClient {
   private fail(fatal: FatalError): void {
     this.stopped = true;
     this.clearTimer();
+    this.clock.stop();
+    this.joined = false;
     const socket = this.socket;
     this.socket = null;
     if (socket) {
@@ -346,6 +408,11 @@ export class ParticipantClient {
     switch (message.type) {
       case "welcome":
         this.onWelcome(message);
+        return;
+      case "sync":
+        this.clock.onReply(message.c0, message.s1);
+        // A better RTT while ready is worth telling the host about.
+        this.reportClock();
         return;
       case "schedule":
         this.update({
@@ -367,7 +434,7 @@ export class ParticipantClient {
         this.update({ lastError: `${message.reason}: ${message.message}` });
         return;
       default:
-        // `sync` replies and host-only messages are for listeners.
+        // Host-only messages.
         return;
     }
   }
@@ -405,6 +472,35 @@ export class ParticipantClient {
       this.send({ type: "seat", x: seat.x, y: seat.y });
     }
     if (seat && readyTapped && !serverReady) this.send({ type: "ready" });
+
+    // The server forgets the clock on every join; a clock that stayed ready
+    // across a reconnect is reported again here.
+    this.joined = true;
+    this.reportedClock = UNREPORTED_CLOCK;
+    this.reportClock();
+  }
+
+  /**
+   * Send `clock` if the status differs from what the server has. `rttMs` is
+   * sent only while ready, so the burst before ready sends nothing.
+   */
+  private reportClock(): void {
+    if (!this.joined) return;
+    const { ready, degraded, bestRtt } = this.clock;
+    const next: ClockReport = {
+      ready,
+      degraded,
+      rttMs: ready && bestRtt !== null ? Math.round(bestRtt) : null,
+    };
+    const prev = this.reportedClock;
+    if (
+      prev.ready === next.ready &&
+      prev.degraded === next.degraded &&
+      prev.rttMs === next.rttMs
+    ) {
+      return;
+    }
+    if (this.send({ type: "clock", ...next })) this.reportedClock = next;
   }
 
   // -- Plumbing --------------------------------------------------------------
@@ -489,5 +585,6 @@ export function browserDeps(): ParticipantClientDeps {
     connectDelayMaxMs: DEFAULT_CONNECT_DELAY_MAX_MS,
     reconnectBaseMs: DEFAULT_RECONNECT_BASE_MS,
     reconnectMaxMs: DEFAULT_RECONNECT_MAX_MS,
+    clock: browserClockEnv(),
   };
 }

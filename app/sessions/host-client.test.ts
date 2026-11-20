@@ -5,6 +5,8 @@ import {
   type ClientMessage,
   type ServerMessage,
 } from "@/lib/protocol";
+import { CLOCK_SYNC } from "@/lib/clock-sync";
+import { FakeTime } from "@/lib/fake-time";
 import { TEST_VENUE } from "@/lib/test-show";
 import {
   HostClient,
@@ -56,6 +58,7 @@ function setup(token: string | null = "secret") {
   const storage = memoryStorage();
   if (token) storage.setItem(hostStorageKey("abc234"), token);
   const sockets: FakeSocket[] = [];
+  const time = new FakeTime(5_000);
   let pending: (() => void) | null = null;
   const deps: HostClientDeps = {
     wsUrl: "ws://test/ws",
@@ -75,12 +78,14 @@ function setup(token: string | null = "secret") {
     },
     reconnectBaseMs: 500,
     reconnectMaxMs: 5_000,
+    clock: time,
   };
   const client = new HostClient("abc234", deps);
   return {
     client,
     sockets,
     storage,
+    time,
     last: () => sockets[sockets.length - 1]!,
     runTimer: () => {
       const fn = pending;
@@ -106,6 +111,7 @@ describe("HostClient", () => {
     t.last().open();
     expect(t.last().sent).toEqual([
       { type: "host", code: "ABC234", hostToken: "secret" },
+      { type: "sync", c0: 5_000 },
     ]);
     t.last().receive(session);
     t.last().receive({
@@ -156,6 +162,32 @@ describe("HostClient", () => {
     expect(t.sockets).toHaveLength(2);
     t.last().open();
     expect(t.last().sent[0]).toMatchObject({ hostToken: "secret" });
+  });
+
+  it("runs its own ClockSync over sync messages", () => {
+    const t = setup();
+    t.client.start();
+    t.last().open();
+    t.last().receive(session);
+    let answered = 0;
+    for (let i = 0; i < CLOCK_SYNC.burstCount && !t.client.clock.ready; i++) {
+      const pings = t.last().sent.filter((m) => m.type === "sync");
+      for (const ping of pings.slice(answered)) {
+        t.last().receive({ type: "sync", c0: ping.c0, s1: ping.c0 + 777 });
+      }
+      answered = pings.length;
+      t.time.advance(CLOCK_SYNC.burstIntervalMs);
+    }
+    expect(t.client.getSnapshot().clockReady).toBe(true);
+    expect(t.client.clock.serverNow()).toBe(t.time.now() + 777);
+    // The host never reports its clock to the server.
+    expect(t.last().sent.some((m) => m.type === "clock")).toBe(false);
+
+    t.client.setVisible(true);
+    expect(t.client.getSnapshot().clockReady).toBe(false);
+
+    t.client.stop();
+    expect(t.time.intervalCount + t.time.timeoutCount).toBe(0);
   });
 });
 

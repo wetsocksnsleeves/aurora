@@ -4,6 +4,8 @@ import {
   type ClientMessage,
   type ServerMessage,
 } from "@/lib/protocol";
+import { CLOCK_SYNC } from "@/lib/clock-sync";
+import { FakeTime } from "@/lib/fake-time";
 import { TEST_VENUE } from "@/lib/test-show";
 import {
   CLOSE_REPLACED,
@@ -26,6 +28,23 @@ class FakeSocket implements SocketLike {
 
   send(data: string): void {
     this.sent.push(JSON.parse(data) as ClientMessage);
+  }
+  /** Sent messages other than clock pings. */
+  get msgs(): ClientMessage[] {
+    return this.sent.filter((m) => m.type !== "sync");
+  }
+  /** `clock` reports sent. */
+  get clockReports(): ClientMessage[] {
+    return this.sent.filter((m) => m.type === "clock");
+  }
+  private answered = 0;
+  /** Answer every unanswered `sync` now, as a server `offsetMs` ahead. */
+  answerSyncs(offsetMs = 1_000): void {
+    const pings = this.sent.filter((m) => m.type === "sync");
+    for (const ping of pings.slice(this.answered)) {
+      this.receive({ type: "sync", c0: ping.c0, s1: ping.c0 + offsetMs });
+    }
+    this.answered = pings.length;
   }
   close(code = 1000): void {
     this.closedWith = code;
@@ -61,6 +80,7 @@ class MemoryStorage implements KeyValueStorage {
 /** Manual timers: `tick()` runs the pending timer and returns its delay. */
 function setup(storage = new MemoryStorage(), random = () => 0.5) {
   const sockets: FakeSocket[] = [];
+  const time = new FakeTime(10_000);
   let pending: { fn: () => void; ms: number; id: number } | null = null;
   let nextId = 1;
   const deps: ParticipantClientDeps = {
@@ -82,12 +102,23 @@ function setup(storage = new MemoryStorage(), random = () => 0.5) {
     connectDelayMaxMs: 800,
     reconnectBaseMs: 500,
     reconnectMaxMs: 5_000,
+    clock: time,
   };
   const client = new ParticipantClient("abc234", deps);
   return {
     client,
     sockets,
     storage,
+    time,
+    /** Answer pings as the burst goes out until the clock is ready. */
+    syncClock: (offsetMs = 1_000) => {
+      for (let i = 0; i < CLOCK_SYNC.burstCount; i++) {
+        sockets[sockets.length - 1]!.answerSyncs(offsetMs);
+        if (client.clock.ready) return;
+        time.advance(CLOCK_SYNC.burstIntervalMs);
+      }
+      throw new Error("clock did not become ready");
+    },
     last: () => sockets[sockets.length - 1]!,
     pendingDelay: () => pending?.ms ?? null,
     tick: () => {
@@ -128,7 +159,10 @@ describe("ParticipantClient", () => {
     t.tick();
     expect(t.client.getSnapshot().connection).toBe("connecting");
     t.last().open();
-    expect(t.last().sent).toEqual([{ type: "join", code: "ABC234" }]);
+    expect(t.last().sent).toEqual([
+      { type: "join", code: "ABC234" },
+      { type: "sync", c0: 10_000 },
+    ]);
     expect(participantScreen(t.client.getSnapshot())).toBe("connecting");
   });
 
@@ -148,13 +182,16 @@ describe("ParticipantClient", () => {
 
     t.client.setSeat({ x: 0.2, y: 0.5 });
     t.client.ready();
-    expect(t.last().sent.slice(1)).toEqual([
+    expect(t.last().msgs.slice(1)).toEqual([
       { type: "seat", x: 0.2, y: 0.5 },
       { type: "ready" },
     ]);
     expect(participantScreen(t.client.getSnapshot())).toBe("syncing");
 
     t.last().receive(schedule);
+    // Schedule in, clock not ready: still syncing (SPEC 4.4).
+    expect(participantScreen(t.client.getSnapshot())).toBe("syncing");
+    t.syncClock();
     expect(participantScreen(t.client.getSnapshot())).toBe("standby");
 
     // Moving the seat after Ready waits for a new schedule.
@@ -171,6 +208,7 @@ describe("ParticipantClient", () => {
     t.client.setSeat({ x: 0.2, y: 0.5 });
     t.client.ready();
     t.last().receive(schedule);
+    t.syncClock();
 
     t.last().drop();
     expect(t.client.getSnapshot().connection).toBe("reconnecting");
@@ -193,8 +231,11 @@ describe("ParticipantClient", () => {
         state: { participant: "standby", seat: { x: 0.2, y: 0.5 }, T0: null },
       }),
     );
-    // The server kept everything, so nothing is resent.
-    expect(t.last().sent).toHaveLength(1);
+    // The server kept seat and ready, so only the clock is reported again.
+    expect(t.last().msgs).toEqual([
+      expect.objectContaining({ type: "join" }),
+      expect.objectContaining({ type: "clock", ready: true }),
+    ]);
     expect(participantScreen(t.client.getSnapshot())).toBe("standby");
 
     // Backoff resets after a welcome.
@@ -216,7 +257,7 @@ describe("ParticipantClient", () => {
     t.last().receive(
       welcome({ participantId: "p2", resumeToken: "tok2" }), // expired
     );
-    expect(t.last().sent.slice(1)).toEqual([
+    expect(t.last().msgs.slice(1)).toEqual([
       { type: "seat", x: 0.7, y: 0.4 },
       { type: "ready" },
     ]);
@@ -243,8 +284,9 @@ describe("ParticipantClient", () => {
     const s = t.client.getSnapshot();
     expect(s.seat).toEqual({ x: 0.1, y: 0.3 });
     expect(s.readyTapped).toBe(true);
-    expect(t.last().sent).toHaveLength(1);
+    expect(t.last().msgs).toHaveLength(1);
     t.last().receive(schedule);
+    t.syncClock();
     expect(participantScreen(t.client.getSnapshot())).toBe("standby");
   });
 
@@ -302,9 +344,144 @@ describe("ParticipantClient", () => {
     t.client.setSeat({ x: 0.2, y: 0.5 });
     t.client.ready();
     t.last().receive(schedule);
+    t.syncClock();
     t.last().receive({ type: "start", T0: 12_345 });
     expect(participantScreen(t.client.getSnapshot())).toBe("playing");
     t.last().receive({ type: "stop" });
     expect(participantScreen(t.client.getSnapshot())).toBe("over");
+  });
+});
+
+describe("ParticipantClient clock sync", () => {
+  /** Joined, seated, ready, schedule in. */
+  function joined() {
+    const t = setup();
+    t.client.start();
+    t.tick();
+    t.last().open();
+    t.last().receive(welcome());
+    t.client.setSeat({ x: 0.2, y: 0.5 });
+    t.client.ready();
+    t.last().receive(schedule);
+    return t;
+  }
+
+  it("bursts 14 pings on open, then pings every 20 s", () => {
+    const t = setup();
+    t.client.start();
+    t.tick();
+    t.last().open();
+    const pings = () => t.last().sent.filter((m) => m.type === "sync").length;
+    expect(pings()).toBe(1);
+    t.time.advance(CLOCK_SYNC.burstIntervalMs * 13);
+    expect(pings()).toBe(CLOCK_SYNC.burstCount);
+    t.time.advance(CLOCK_SYNC.burstIntervalMs * 10);
+    expect(pings()).toBe(CLOCK_SYNC.burstCount);
+    t.time.advance(CLOCK_SYNC.steadyIntervalMs);
+    expect(pings()).toBe(CLOCK_SYNC.burstCount + 1);
+  });
+
+  it("estimates the server clock from sync replies", () => {
+    const t = joined();
+    t.syncClock(2_500);
+    expect(t.client.clock.serverNow()).toBe(t.time.now() + 2_500);
+    expect(t.client.getSnapshot().clockReady).toBe(true);
+    expect(t.client.getSnapshot().clockDegraded).toBe(false);
+  });
+
+  it("reports clock status changes to the server once joined", () => {
+    const t = setup();
+    t.client.start();
+    t.tick();
+    t.last().open();
+    // Replies before welcome: nothing is reported yet.
+    t.last().answerSyncs();
+    expect(t.last().clockReports).toEqual([]);
+    t.last().receive(welcome());
+    expect(t.last().clockReports).toEqual([]);
+    t.syncClock();
+    expect(t.last().clockReports).toEqual([
+      { type: "clock", ready: true, degraded: false, rttMs: 0 },
+    ]);
+    // Further replies with the same status send nothing more.
+    t.time.advance(CLOCK_SYNC.steadyIntervalMs);
+    t.last().answerSyncs();
+    expect(t.last().clockReports).toHaveLength(1);
+  });
+
+  it("falls back to degraded after 6 s and reports it", () => {
+    const t = joined();
+    // Replies with RTT 500 ms never pass the 400 ms gate.
+    const sock = t.last();
+    let answered = 0;
+    for (let i = 0; i < 100; i++) {
+      const pings = sock.sent.filter((m) => m.type === "sync");
+      for (const ping of pings.slice(answered)) {
+        const c0 = ping.c0;
+        t.time.setTimeout(
+          () => sock.receive({ type: "sync", c0, s1: c0 + 250 }),
+          500,
+        );
+      }
+      answered = pings.length;
+      t.time.advance(CLOCK_SYNC.burstIntervalMs);
+    }
+    expect(t.client.getSnapshot().clockReady).toBe(true);
+    expect(t.client.getSnapshot().clockDegraded).toBe(true);
+    expect(sock.clockReports).toEqual([
+      { type: "clock", ready: true, degraded: true, rttMs: 500 },
+    ]);
+    expect(participantScreen(t.client.getSnapshot())).toBe("standby");
+  });
+
+  it("returning to visible clears the clock, goes dark, and bursts again", () => {
+    const t = joined();
+    t.syncClock();
+    expect(participantScreen(t.client.getSnapshot())).toBe("standby");
+    const before = t.last().sent.length;
+
+    t.client.setVisible(false);
+    expect(t.client.clock.ready).toBe(true);
+
+    t.client.setVisible(true);
+    expect(t.client.clock.ready).toBe(false);
+    expect(t.client.clock.sampleCount).toBe(0);
+    expect(participantScreen(t.client.getSnapshot())).toBe("syncing");
+    expect(t.last().sent.slice(before)).toEqual([
+      { type: "clock", ready: false, degraded: false, rttMs: null },
+      { type: "sync", c0: t.time.now() },
+    ]);
+
+    t.syncClock();
+    expect(participantScreen(t.client.getSnapshot())).toBe("standby");
+    expect(t.last().clockReports.at(-1)).toMatchObject({ ready: true });
+  });
+
+  it("stays dark (playing screen) while the clock resyncs during a show", () => {
+    const t = joined();
+    t.syncClock();
+    t.last().receive({ type: "start", T0: 50_000 });
+    t.client.setVisible(true);
+    expect(t.client.getSnapshot().clockReady).toBe(false);
+    expect(participantScreen(t.client.getSnapshot())).toBe("playing");
+  });
+
+  it("stops clock timers on close and restarts the burst on reconnect", () => {
+    const t = joined();
+    t.syncClock();
+    t.time.advance(CLOCK_SYNC.burstIntervalMs * CLOCK_SYNC.burstCount);
+    expect(t.time.intervalCount).toBe(1); // steady ping
+    t.last().drop();
+    expect(t.time.intervalCount).toBe(0);
+    // The reconnect delay is on the client's own timer, not the clock's.
+    t.tick();
+    t.last().open();
+    expect(t.last().sent.filter((m) => m.type === "sync")).toHaveLength(1);
+    expect(t.time.intervalCount).toBe(1); // burst
+    // The clock stayed ready, so standby holds through the reconnect.
+    expect(t.client.clock.ready).toBe(true);
+    t.client.stop();
+    expect(t.time.intervalCount).toBe(0);
+    expect(t.time.timeoutCount).toBe(0);
   });
 });

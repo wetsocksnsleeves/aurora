@@ -177,8 +177,8 @@ type Handlers = { [K in ClientMessageType]: Handler<K> };
  * Routes client messages to the session store and sends replies.
  *
  * Extension points for later chunks:
- * - `sync` (chunk 4): reply `{ type: "sync", c0, s1: performance.now() }`
- *   from `handlers.sync`, for participants and hosts alike.
+ * - `sync` / `clock` (chunk 4): `onSync` replies with the server clock to
+ *   any socket; `onClock` records a participant's ClockSync status.
  * - `start` / `stop` (chunk 5): in `handlers.start` / `handlers.stop`, check
  *   `requireHost`, call `store.startShow` / `store.stopShow`, then
  *   `broadcastToParticipants` and `sendToHosts`.
@@ -361,8 +361,8 @@ export class WsRouter {
     seat: (conn, msg) => this.onSeat(conn, msg),
     ready: (conn) => this.onReady(conn),
     host: (conn, msg) => this.onHost(conn, msg),
-    // Chunk 4: reply with the server clock (SPEC 4.2).
-    sync: (conn) => this.unsupported(conn, "sync"),
+    sync: (conn, msg) => this.onSync(conn, msg),
+    clock: (conn, msg) => this.onClock(conn, msg),
     // Chunk 5: start and stop the show (SPEC 4.6).
     start: (conn) => this.unsupported(conn, "start"),
     stop: (conn) => this.unsupported(conn, "stop"),
@@ -370,6 +370,37 @@ export class WsRouter {
 
   private unsupported(conn: Connection, type: ClientMessageType): void {
     this.sendError(conn, "unsupported", `"${type}" is not implemented yet`);
+  }
+
+  /**
+   * Clock handshake (SPEC 4.2). Replies at once with the server clock, before
+   * any other work, so the reply's queueing time stays out of the RTT. Any
+   * socket may ask: participants (also before `join`) and hosts alike.
+   */
+  private onSync(conn: Connection, msg: MessageOfType<ClientMessage, "sync">) {
+    this.send(conn, { type: "sync", c0: msg.c0, s1: performance.now() });
+  }
+
+  /** The participant's ClockSync status changed (SPEC 4.4). */
+  private onClock(
+    conn: Connection,
+    msg: MessageOfType<ClientMessage, "clock">,
+  ) {
+    const { session, participant } = this.requireParticipant(conn);
+    const prev = participant.clock;
+    if (
+      prev.ready === msg.ready &&
+      prev.degraded === msg.degraded &&
+      prev.rttMs === msg.rttMs
+    ) {
+      return;
+    }
+    this.store.setClock(session, participant.id, {
+      ready: msg.ready,
+      degraded: msg.degraded,
+      rttMs: msg.rttMs,
+    });
+    this.notifyParticipantsChanged(session);
   }
 
   private onJoin(conn: Connection, msg: MessageOfType<ClientMessage, "join">) {

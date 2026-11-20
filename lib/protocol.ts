@@ -39,8 +39,24 @@ export type SeatMessage = { type: "seat"; x: number; y: number };
 /** Participant tapped Ready. */
 export type ReadyMessage = { type: "ready" };
 
-/** Clock handshake request (SPEC 4.2). `c0` is the client's `performance.now()`. */
+/**
+ * Clock handshake request (SPEC 4.2). `c0` is the client's `performance.now()`.
+ * Participants and hosts may send it, before or after `join`/`host`.
+ */
 export type SyncRequest = { type: "sync"; c0: number };
+
+/**
+ * Not in SPEC 5.2. The participant's `ClockSync` status (SPEC 4.4), sent when
+ * it changes and again after every `welcome` (the server resets it on each
+ * connection). Standby needs `ready`. `rttMs` is the best RTT, rounded, for
+ * the host map.
+ */
+export type ClockStatusMessage = {
+  type: "clock";
+  ready: boolean;
+  degraded: boolean;
+  rttMs: number | null;
+};
 
 /**
  * Host creates a session for a show (`showId`), or re-attaches to an existing
@@ -63,6 +79,7 @@ export type ClientMessage =
   | SeatMessage
   | ReadyMessage
   | SyncRequest
+  | ClockStatusMessage
   | HostMessage
   | StartRequest
   | StopRequest;
@@ -259,6 +276,18 @@ function toClientMessage(v: Rec): ClientMessage {
       return { type: "ready" };
     case "sync":
       return { type: "sync", c0: num(v, "c0") };
+    case "clock": {
+      const rttMs = nullableNum(v, "rttMs");
+      if (rttMs !== null && rttMs < 0) {
+        throw new InvalidMessage("`rttMs` must not be negative");
+      }
+      return {
+        type: "clock",
+        ready: bool(v, "ready"),
+        degraded: bool(v, "degraded"),
+        rttMs,
+      };
+    }
     case "host": {
       const hasShow = v.showId !== undefined;
       const hasCode = v.code !== undefined;
@@ -392,6 +421,14 @@ function num(v: Rec, key: string): number {
   const value = v[key];
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throw new InvalidMessage(`\`${key}\` must be a finite number`);
+  }
+  return value;
+}
+
+function bool(v: Rec, key: string): boolean {
+  const value = v[key];
+  if (typeof value !== "boolean") {
+    throw new InvalidMessage(`\`${key}\` must be a boolean`);
   }
   return value;
 }

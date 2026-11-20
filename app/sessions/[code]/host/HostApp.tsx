@@ -32,6 +32,14 @@ export function HostApp({ code }: { code: string }) {
     return () => client.stop();
   }, [client]);
 
+  // A tab back from hidden resyncs its clock (SPEC 4.3, 4.9).
+  useEffect(() => {
+    const onVisibility = () =>
+      client.setVisible(document.visibilityState === "visible");
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [client]);
+
   const { session, participants, fatal, connection } = snapshot;
   const dots = useMemo(() => participantDots(participants), [participants]);
   const counts = useMemo(() => countByState(participants), [participants]);

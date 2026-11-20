@@ -26,7 +26,7 @@ export const DISCONNECT_REMOVAL_MS = 60_000;
 /** A participant's schedule plus the show length, as sent in `schedule`. */
 export type TimedSchedule = Schedule & { durationMs: number };
 
-/** Clock status a participant reports (SPEC 4.4). Filled in by chunk 4. */
+/** Clock status a participant reports in `clock` (SPEC 4.4). */
 export type ClockStatus = {
   ready: boolean;
   degraded: boolean;
@@ -100,8 +100,8 @@ export type SessionStoreOptions = {
   /** Resume token generator. Defaults to 16 random bytes as base64url. */
   newResumeToken?: () => string;
   /**
-   * Standby also requires a ready clock (SPEC 4.4). False until the clock
-   * handshake lands in chunk 4, so standby means "schedule sent" for now.
+   * Standby also requires a ready clock (SPEC 4.4), reported by the client's
+   * `clock` message. Default true. Tests of the store alone may turn it off.
    */
   requireClockSync?: boolean;
 };
@@ -179,7 +179,7 @@ export class SessionStore {
     this.randomInt = options.randomInt ?? randomInt;
     this.newId = options.newId ?? randomUUID;
     this.newResumeToken = options.newResumeToken ?? newResumeToken;
-    this.requireClockSync = options.requireClockSync ?? false;
+    this.requireClockSync = options.requireClockSync ?? true;
   }
 
   // -- Sessions -------------------------------------------------------------
@@ -326,7 +326,7 @@ export class SessionStore {
     return true;
   }
 
-  /** Record the participant's clock status (chunk 4 sends it). */
+  /** Record the participant's clock status from a `clock` message. */
   setClock(session: Session, id: string, clock: ClockStatus): Participant {
     const p = this.getParticipant(session, id);
     p.clock = { ...clock };

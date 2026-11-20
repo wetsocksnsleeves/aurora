@@ -13,6 +13,7 @@ import {
   hostStorageKey,
   type HostClientDeps,
 } from "@/app/sessions/host-client";
+import type { ClockSyncEnv } from "@/lib/clock-sync";
 import { rawUpgrade } from "./testing/raw-upgrade";
 import { TestClient } from "./testing/ws-client";
 import { spawnServer, type SpawnedServer } from "./testing/spawn-server";
@@ -86,6 +87,18 @@ describe("custom server", () => {
   });
 });
 
+/** Real clock and timers in Node, for `ClockSync`. */
+function nodeClockEnv(): ClockSyncEnv {
+  type Handle = ReturnType<typeof setTimeout>;
+  return {
+    now: () => performance.now(),
+    setTimeout: (fn, ms) => setTimeout(fn, ms),
+    clearTimeout: (h) => clearTimeout(h as Handle),
+    setInterval: (fn, ms) => setInterval(fn, ms),
+    clearInterval: (h) => clearInterval(h as Handle),
+  };
+}
+
 /** Deps that drive `ParticipantClient` with Node's built-in WebSocket. */
 function nodeParticipantDeps(url: string): {
   deps: ParticipantClientDeps;
@@ -114,6 +127,7 @@ function nodeParticipantDeps(url: string): {
       connectDelayMaxMs: 800,
       reconnectBaseMs: 50,
       reconnectMaxMs: 200,
+      clock: nodeClockEnv(),
     },
   };
 }
@@ -162,6 +176,11 @@ describe("participant page", () => {
       expect(latest.list).toContainEqual(
         expect.objectContaining({ id, x: 0.3, y: 0.6, state: "standby" }),
       );
+      // Standby came from a real handshake: the clock is ready and reported.
+      expect(client.clock.ready).toBe(true);
+      const summary = latest.list.find((p) => p.id === id)!;
+      expect(summary.rttMs).toEqual(expect.any(Number));
+      expect(summary.degraded).toBe(false);
 
       // Drop the socket: the client reconnects and resumes the same id.
       sockets[0]!.close();
@@ -210,6 +229,7 @@ function nodeHostDeps(url: string): HostClientDeps {
     clearTimeout: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
     reconnectBaseMs: 50,
     reconnectMaxMs: 200,
+    clock: nodeClockEnv(),
   };
 }
 
@@ -241,6 +261,15 @@ describe("host page", () => {
       );
       phone.send({ type: "seat", x: 0.7, y: 0.4 });
       phone.send({ type: "ready" });
+      await phone.next("schedule");
+      // Schedule in, clock not reported: syncing, not standby (SPEC 4.4).
+      await until(
+        () => host.getSnapshot().participants[0]?.state === "syncing",
+      );
+      await new Promise((r) => setTimeout(r, 300));
+      expect(host.getSnapshot().participants[0]?.state).toBe("syncing");
+
+      phone.send({ type: "clock", ready: true, degraded: true, rttMs: 180 });
       await until(
         () => host.getSnapshot().participants[0]?.state === "standby",
       );
@@ -250,10 +279,13 @@ describe("host page", () => {
           x: 0.7,
           y: 0.4,
           state: "standby",
-          rttMs: null,
-          degraded: false,
+          rttMs: 180,
+          degraded: true,
         },
       ]);
+      // The host's own clock syncs against the same server.
+      await until(() => host.getSnapshot().clockReady);
+      expect(host.clock.bestRtt).toBeLessThan(400);
 
       await phone.close();
       await until(

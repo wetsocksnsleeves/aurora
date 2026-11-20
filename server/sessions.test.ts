@@ -17,7 +17,8 @@ function setup(options: { requireClockSync?: boolean } = {}) {
   let now = 1_000;
   const store = new SessionStore({
     now: () => now,
-    requireClockSync: options.requireClockSync,
+    // Most tests here are about other facts; the clock gate has its own.
+    requireClockSync: options.requireClockSync ?? false,
   });
   const session = store.createSession(TEST_SHOW);
   return {
@@ -164,6 +165,11 @@ describe("participant states (SPEC 5.3)", () => {
     store.startShow(session, 5_000);
     const id = toStandby(store, session);
     expect(store.getParticipant(session, id).state).toBe("playing");
+  });
+
+  it("requires a ready clock by default", () => {
+    const store = new SessionStore();
+    expect(store.requireClockSync).toBe(true);
   });
 
   it("requires a ready clock for standby once clock sync is on (chunk 4)", () => {

@@ -13,7 +13,9 @@ import {
   type ServerMessage,
   type SessionMessage,
 } from "@/lib/protocol";
+import { ClockSync, type ClockSyncEnv } from "@/lib/clock-sync";
 import { wsUrlFor } from "@/lib/ws-url";
+import { browserClockEnv } from "../browser-clock";
 
 /**
  * The host page's connection to the server (SPEC 2.2), kept apart from
@@ -27,8 +29,9 @@ import { wsUrlFor } from "@/lib/ws-url";
  *   session and the throttled `participants` list in a snapshot. Without a
  *   stored token it does not connect and reports `no-token`.
  *
- * Later chunks hook in with `addListener` and `send`: Start/Stop (chunk 5),
- * the host's own ClockSync (chunk 4).
+ * The host runs its own `ClockSync` over the same `sync` message (SPEC 4.8),
+ * started on every open and stopped on close, so it can colour playing dots
+ * and (chunk 15) schedule audio at `T0` with `client.clock.serverNow()`.
  */
 
 export type HostClientDeps = {
@@ -40,6 +43,8 @@ export type HostClientDeps = {
   clearTimeout: (handle: unknown) => void;
   reconnectBaseMs: number;
   reconnectMaxMs: number;
+  /** Local clock and timers for `ClockSync`. */
+  clock: ClockSyncEnv;
 };
 
 export type HostConnection = "connecting" | "open" | "reconnecting" | "closed";
@@ -60,6 +65,8 @@ export type HostSnapshot = {
   participants: ParticipantSummary[];
   /** Server-clock start time while a show runs, else null. */
   T0: number | null;
+  /** The host's own `ClockSync` passed its ready gate. */
+  clockReady: boolean;
   fatal: HostFatal | null;
 };
 
@@ -107,6 +114,9 @@ export class HostClient {
   private readonly subscribers = new Set<() => void>();
   private readonly listeners = new Set<HostClientListener>();
 
+  /** The host page's estimate of the server clock. */
+  readonly clock: ClockSync;
+
   /** `deps` may be a function, called on first use (see `browserHostDeps`). */
   constructor(code: string, deps: HostClientDeps | (() => HostClientDeps)) {
     this.depsSource = deps;
@@ -116,8 +126,18 @@ export class HostClient {
       session: null,
       participants: [],
       T0: null,
+      clockReady: false,
       fatal: null,
     };
+    this.clock = new ClockSync({
+      now: () => this.deps.clock.now(),
+      send: (c0) => void this.send({ type: "sync", c0 }),
+      setTimeout: (fn, ms) => this.deps.clock.setTimeout(fn, ms),
+      clearTimeout: (h) => this.deps.clock.clearTimeout(h),
+      setInterval: (fn, ms) => this.deps.clock.setInterval(fn, ms),
+      clearInterval: (h) => this.deps.clock.clearInterval(h),
+      onChange: ({ ready }) => this.update({ clockReady: ready }),
+    });
   }
 
   private get deps(): HostClientDeps {
@@ -143,9 +163,15 @@ export class HostClient {
     if (!this.running) return;
     this.running = false;
     this.clearTimer();
+    this.clock.stop();
     this.dropSocket();
     this.emitClose(false);
     this.update({ connection: "closed" });
+  }
+
+  /** Call on `visibilitychange`: a returning tab resyncs its clock. */
+  setVisible(visible: boolean): void {
+    if (visible && this.running) this.clock.onVisible();
   }
 
   getSnapshot = (): HostSnapshot => this.snapshot;
@@ -189,6 +215,7 @@ export class HostClient {
         code: this.snapshot.code,
         ...(hostToken ? { hostToken } : {}),
       });
+      this.clock.start();
     };
     socket.onmessage = (event) => {
       if (socket !== this.socket || typeof event.data !== "string") return;
@@ -201,6 +228,7 @@ export class HostClient {
       if (socket !== this.socket) return;
       this.socket = null;
       detachSocket(socket);
+      this.clock.stop();
       if (!this.running) return;
       this.emitClose(true);
       this.scheduleReconnect();
@@ -210,6 +238,9 @@ export class HostClient {
 
   private handleMessage(message: ServerMessage): void {
     switch (message.type) {
+      case "sync":
+        this.clock.onReply(message.c0, message.s1);
+        return;
       case "session":
         this.attempt = 0;
         this.update({ session: message, T0: message.T0 });
@@ -239,6 +270,7 @@ export class HostClient {
   private fail(fatal: HostFatal): void {
     this.running = false;
     this.clearTimer();
+    this.clock.stop();
     this.dropSocket();
     this.emitClose(false);
     this.update({ connection: "closed", fatal });
@@ -351,5 +383,6 @@ export function browserHostDeps(): HostClientDeps {
     clearTimeout: (handle) => window.clearTimeout(handle as number),
     reconnectBaseMs: 500,
     reconnectMaxMs: 5_000,
+    clock: browserClockEnv(),
   };
 }
