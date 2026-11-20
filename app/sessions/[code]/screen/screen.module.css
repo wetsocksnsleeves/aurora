@@ -1,0 +1,48 @@
+.page {
+  --band-top: clamp(52px, 9vh, 110px);
+  --band-bottom: clamp(24px, 4vh, 48px);
+  --rainbow: linear-gradient(
+    90deg,
+    #ff5f8f,
+    #ffb347,
+    #ffe66d,
+    #6dffb0,
+    #6dd5ff,
+    #b98bff,
+    #ff5f8f
+  );
+  position: fixed;
+  inset: 0;
+  background: #000;
+  overflow: hidden;
+}
+
+.mark {
+  position: absolute;
+  top: 0;
+  left: 4vw;
+  height: var(--band-top);
+  display: flex;
+  align-items: center;
+  font-size: calc(var(--band-top) * 0.46);
+  letter-spacing: -0.03em;
+  background: var(--rainbow);
+  background-size: 300% 100%;
+  background-clip: text;
+  color: transparent;
+  animation: flow 12s linear infinite;
+}
+
+@keyframes flow {
+  to {
+    background-position: 300% 0;
+  }
+}
+
+.target {
+  position: absolute;
+  left: 0;
+  top: var(--band-top);
+  width: 100vw;
+  height: calc(100vh - var(--band-top) - var(--band-bottom));
+}

@@ -103,6 +103,7 @@ const session: ServerMessage = {
   venue: TEST_VENUE,
   T0: null,
   show: TEST_SHOW,
+  positioning: { targetWidthM: 3, venueWidthM: 20, venueDepthM: 20 },
 };
 
 describe("HostClient", () => {

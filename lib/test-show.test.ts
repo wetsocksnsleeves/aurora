@@ -50,7 +50,7 @@ describe("testSchedule", () => {
 
   it("the test show lasts as long as the wave", () => {
     expect(TEST_SHOW.audio.durationMs).toBe(TEST_SHOW_DURATION_MS);
-    expect(TEST_SHOW.venue.shapes).toHaveLength(2);
+    expect(TEST_SHOW.venue.shapes).toHaveLength(1);
   });
 });
 

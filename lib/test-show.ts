@@ -18,25 +18,19 @@ import type {
 /** `showId` to send in `host` to get a session for the test show. */
 export const TEST_SHOW_ID = "test";
 
-/** Two seating blocks either side of a centre aisle, stage at the top. */
+/**
+ * One box: the whole room in front of the screen (stage at the top). Seats
+ * come from the camera (SPEC 2.4), so anyone in the box gets positioned.
+ */
 export const TEST_VENUE: Venue = {
   shapes: [
     {
-      id: "left",
+      id: "room",
       points: [
-        { x: 0.05, y: 0.2 },
-        { x: 0.45, y: 0.2 },
-        { x: 0.45, y: 0.9 },
-        { x: 0.05, y: 0.9 },
-      ],
-    },
-    {
-      id: "right",
-      points: [
-        { x: 0.55, y: 0.2 },
-        { x: 0.95, y: 0.2 },
-        { x: 0.95, y: 0.9 },
-        { x: 0.55, y: 0.9 },
+        { x: 0, y: 0 },
+        { x: 1, y: 0 },
+        { x: 1, y: 1 },
+        { x: 0, y: 1 },
       ],
     },
   ],

@@ -2,7 +2,7 @@
 
 As of 2026-11-20.
 
-A host designs a light show against an audio track on a drawing of the venue. At the event, audience members scan a QR code, tap where they sit, and their phone screens become pixels in the show. All phones start on a shared clock and play their own pre-computed light sequence.
+A host designs a light show against an audio track on a drawing of the venue. At the event, audience members scan a QR code, point their camera at the big screen so the phone can work out where they are (2.4), and their phone screens become pixels in the show. All phones start on a shared clock and play their own pre-computed light sequence.
 
 ## 1. Roles and terms
 
@@ -50,11 +50,23 @@ Each clip also has an optional fade in and fade out duration in ms. Clips stack 
 ### 2.3 Participant
 
 1. Scan the QR code. The phone opens the participant page in the browser.
-2. The page shows the venue outline. The participant taps where they sit. A marker shows the chosen spot, and they can tap again to move it.
+2. The participant taps "Find my seat" and points the camera at the big screen. The phone works out where it is (2.4) and shows the spot on the venue map. "Scan again" repeats it.
 3. The participant taps "Ready". The phone enters fullscreen where supported and requests a screen wake lock. This tap is also the user gesture that browsers require for those APIs.
 4. In the background the phone runs the clock handshake (section 4) and the server sends the participant's schedule.
 5. When both are done the screen turns green. The host map shows the dot as green. The phone waits.
 6. The host starts the show. The screen goes black and then plays the schedule. At the end it shows a "Show over" screen.
+
+### 2.4 Finding the seat with the camera
+
+There is no seat picking by hand: the participant points the phone camera at the big screen and the phone works out where it is. The venue is one box in front of the screen, and anyone in it gets positioned.
+
+1. The host opens `/sessions/[code]/screen` on the projector. It shows a positioning target: four corner anchors (rounded-square rings with a core, like a QR code's finder squares) around an LED-style grille of lit and unlit pixels, with the join QR code in the middle. `F` toggles fullscreen.
+2. The host enters three sizes in the "Camera seats" panel on the host screen: the target width (between the centres of the left and right anchors, measured on the screen), and the venue box's width and depth in metres. The box's top edge is the screen, centred.
+3. The participant taps "Find my seat" and points at the screen. The phone finds the anchors, reads the grille to tell which corner is which, and solves the camera position from about 300 matched points. Past roughly 7 target widths away the grille is too small to read and the four anchors alone are used, assuming the phone is upright.
+4. Distance depends on the camera's field of view, which browsers don't report. The phone measures it from the angled view where it can (front and side seats). From far back and square-on it asks for a slow left-right sweep: the gyro gives the angle turned, the camera the distance the screen slid. The measurement is remembered on the phone. Otherwise it assumes 66°.
+5. The position becomes a seat in the box (`seat` message as usual); a position outside the box lands on its nearest edge. The participant taps Ready.
+
+The maths is in `lib/positioning/`, with synthetic-camera tests. The Playwright sync test (`e2e/`) seats its phones the same way, through a fake camera playing a rendered view of the target.
 
 ## 3. Pattern model
 
@@ -290,7 +302,7 @@ Server to participant:
 | `start` | `{ T0 }` | Host starts |
 | `stop` | `{}` | Host stops |
 
-Host to server: `host { showId }` to create a session, `start`, `stop`.
+Host to server: `host { showId }` to create a session, `start`, `stop`, and `positioning { config }` to set the camera seat sizes (2.4). The server sends `positioning { config }` to every participant and host when they change, and includes the current sizes in `welcome` and `session`.
 
 Server to host: `session { code, joinUrl }`, `participants { list: [{ id, x, y, state, rttMs, degraded }] }` throttled to 4 updates per second, `start { T0 }`. The host also sends and receives `sync` messages for its own clock.
 

@@ -73,6 +73,10 @@ describe("parseClientMessage", () => {
       { type: "host", code: "ABCDEF", hostToken: "secret" },
       { type: "start" },
       { type: "stop" },
+      {
+        type: "positioning",
+        config: { targetWidthM: 4.2, venueWidthM: 30, venueDepthM: 25 },
+      },
     ];
     for (const message of messages) {
       expect(okClient(message)).toEqual(message);
@@ -109,6 +113,13 @@ describe("parseClientMessage", () => {
     badClient('{"type":"clock","ready":"yes","degraded":false,"rttMs":1}');
     badClient('{"type":"clock","ready":true,"degraded":false,"rttMs":-1}');
     badClient('{"type":"host"}');
+    badClient('{"type":"positioning"}');
+    badClient(
+      '{"type":"positioning","config":{"targetWidthM":0,"venueWidthM":20,"venueDepthM":20}}',
+    );
+    badClient(
+      '{"type":"positioning","config":{"targetWidthM":3,"venueWidthM":5000,"venueDepthM":20}}',
+    );
     badClient('{"type":"host","showId":"a","code":"b"}');
   });
 });
@@ -122,6 +133,7 @@ describe("parseServerMessage", () => {
         resumeToken: "tok",
         venue: TEST_VENUE,
         state: { participant: "connected", seat: null, T0: null },
+        positioning: { targetWidthM: 3, venueWidthM: 20, venueDepthM: 20 },
       },
       {
         type: "welcome",
@@ -129,6 +141,7 @@ describe("parseServerMessage", () => {
         resumeToken: "tok",
         venue: TEST_VENUE,
         state: { participant: "playing", seat: { x: 0.2, y: 0.3 }, T0: 99 },
+        positioning: { targetWidthM: 3, venueWidthM: 20, venueDepthM: 20 },
       },
       { type: "sync", c0: 1, s1: 2 },
       {
@@ -142,6 +155,10 @@ describe("parseServerMessage", () => {
       { type: "start", T0: 12_345.5 },
       { type: "stop" },
       {
+        type: "positioning",
+        config: { targetWidthM: 3, venueWidthM: 20, venueDepthM: 20 },
+      },
+      {
         type: "session",
         code: "ABCDEF",
         joinUrl: "https://x.example/j/ABCDEF",
@@ -149,6 +166,7 @@ describe("parseServerMessage", () => {
         venue: TEST_VENUE,
         T0: null,
         show: SHOW,
+        positioning: { targetWidthM: 3, venueWidthM: 20, venueDepthM: 20 },
       },
       {
         type: "session",
@@ -158,6 +176,7 @@ describe("parseServerMessage", () => {
         venue: TEST_VENUE,
         T0: 5,
         show: TEST_SHOW,
+        positioning: { targetWidthM: 3, venueWidthM: 20, venueDepthM: 20 },
         hostToken: "secret",
       },
       {

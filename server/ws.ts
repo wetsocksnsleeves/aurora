@@ -403,6 +403,7 @@ export class WsRouter {
     clock: (conn, msg) => this.onClock(conn, msg),
     start: (conn) => this.onStart(conn),
     stop: (conn) => this.onStop(conn),
+    positioning: (conn, msg) => this.onPositioning(conn, msg),
   };
 
   /**
@@ -441,6 +442,21 @@ export class WsRouter {
     this.broadcastToParticipants(session, { type: "stop" });
     this.sendToHosts(session, { type: "stop" });
     this.notifyParticipantsChanged(session);
+  }
+
+  /**
+   * Host set the sizes for finding seats with the camera (SPEC 2.4). Every
+   * participant and host gets them, so open seat pickers use them at once.
+   */
+  private onPositioning(
+    conn: Connection,
+    msg: MessageOfType<ClientMessage, "positioning">,
+  ) {
+    const session = this.requireHost(conn);
+    this.store.setPositioning(session, msg.config);
+    const reply = { type: "positioning", config: session.positioning } as const;
+    this.broadcastToParticipants(session, reply);
+    this.sendToHosts(session, reply);
   }
 
   /** The participant's ClockSync status changed (SPEC 4.4). */
@@ -497,6 +513,7 @@ export class WsRouter {
         seat: participant.seat,
         T0: session.T0,
       },
+      positioning: session.positioning,
     });
     if (resumed && participant.readyTapped) {
       if (participant.schedule) {
@@ -569,6 +586,7 @@ export class WsRouter {
       venue: session.show.venue,
       T0: session.T0,
       show: session.show,
+      positioning: session.positioning,
       // Only the creating host learns the token; re-attaching hosts have it.
       ...(created ? { hostToken: session.hostToken } : {}),
     });
