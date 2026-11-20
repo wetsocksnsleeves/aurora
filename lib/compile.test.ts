@@ -274,3 +274,200 @@ describe("snapSeatToVenue", () => {
     expect(snapSeatToVenue({ shapes: [] }, p)).toBe(p);
   });
 });
+
+describe("moving polygons", () => {
+  // A 0.2-wide band starting at the left edge that slides right by 0.8 over
+  // 1000 ms: its left edge is at 0.8 * t / 1000.
+  const band = clip({
+    startMs: 0,
+    endMs: 1000,
+    shape: {
+      kind: "polygon",
+      points: rect(0, 0, 0.2, 1),
+      moveTo: { x: 0.8, y: 0 },
+    },
+  });
+  const s = show([band], 1000);
+
+  it("interpolates the offset linearly from startMs to endMs", () => {
+    // Seat at x = 0.5 is covered while 0.3 <= 0.8 * t / 1000 <= 0.5,
+    // i.e. t in [375, 625].
+    expect(colorAt(s, { x: 0.5, y: 0.5 }, 360)).toBe("#000000");
+    expect(colorAt(s, { x: 0.5, y: 0.5 }, 380)).toBe("#ffffff");
+    expect(colorAt(s, { x: 0.5, y: 0.5 }, 620)).toBe("#ffffff");
+    expect(colorAt(s, { x: 0.5, y: 0.5 }, 640)).toBe("#000000");
+  });
+
+  it("produces a wave: seats further right light up later", () => {
+    const onsets = [0.1, 0.3, 0.5, 0.7, 0.9].map((x) => {
+      const { events } = compileSchedule(s, { x, y: 0.5 });
+      return events.find((e) => e.color === "#ffffff")?.tMs;
+    });
+    expect(onsets).toEqual([0, 140, 380, 640, 880]);
+  });
+
+  it("moves vertically and diagonally too", () => {
+    const diag = show(
+      [
+        clip({
+          startMs: 0,
+          endMs: 1000,
+          shape: {
+            kind: "polygon",
+            points: rect(0, 0, 0.1, 0.1),
+            moveTo: { x: 0.5, y: 0.5 },
+          },
+        }),
+      ],
+      1000,
+    );
+    expect(colorAt(diag, { x: 0.3, y: 0.3 }, 500)).toBe("#ffffff");
+    expect(colorAt(diag, { x: 0.3, y: 0.3 }, 0)).toBe("#000000");
+  });
+
+  it("treats moveTo of zero as a static polygon", () => {
+    const still = show([
+      clip({
+        shape: {
+          kind: "polygon",
+          points: rect(0, 0, 0.2, 1),
+          moveTo: { x: 0, y: 0 },
+        },
+      }),
+    ]);
+    expect(colorAt(still, { x: 0.1, y: 0.5 }, 900)).toBe("#ffffff");
+    expect(colorAt(still, { x: 0.5, y: 0.5 }, 900)).toBe("#000000");
+  });
+});
+
+describe("fades", () => {
+  it("ramps up over fadeInMs and down over fadeOutMs", () => {
+    const s = show([
+      clip({
+        startMs: 0,
+        endMs: 1000,
+        color: "#ff8000",
+        fadeInMs: 200,
+        fadeOutMs: 400,
+      }),
+    ]);
+    expect(colorAt(s, centre, 0)).toBe("#000000");
+    expect(colorAt(s, centre, 100)).toBe("#804000"); // 0.5
+    expect(colorAt(s, centre, 200)).toBe("#ff8000");
+    expect(colorAt(s, centre, 600)).toBe("#ff8000");
+    expect(colorAt(s, centre, 800)).toBe("#804000"); // 0.5
+    expect(colorAt(s, centre, 900)).toBe("#402000"); // 0.25
+    expect(colorAt(s, centre, 1000)).toBe("#000000"); // clip over
+  });
+
+  it("emits one event per changed 20 ms sample during a fade", () => {
+    const s = show([clip({ startMs: 0, endMs: 400, fadeInMs: 200 })], 400);
+    const { events } = compileSchedule(s, centre);
+    expect(events.slice(0, 11).map((e) => e.tMs)).toEqual(
+      Array.from({ length: 11 }, (_, i) => i * 20),
+    );
+    expect(events.slice(0, 11).map((e) => e.color)).toEqual([
+      "#000000",
+      "#1a1a1a",
+      "#333333",
+      "#4d4d4d",
+      "#666666",
+      "#808080",
+      "#999999",
+      "#b3b3b3",
+      "#cccccc",
+      "#e6e6e6",
+      "#ffffff",
+    ]);
+    expect(events).toHaveLength(11);
+  });
+
+  it("caps the envelope when fades overlap in a short clip", () => {
+    const s = show([
+      clip({ startMs: 0, endMs: 200, fadeInMs: 200, fadeOutMs: 200 }),
+    ]);
+    // At 100 ms both ramps are at 0.5.
+    expect(colorAt(s, centre, 100)).toBe("#808080");
+  });
+
+  it("fades the top layer toward black rather than revealing lower layers", () => {
+    const s = show([
+      clip({ layer: 0, color: "#ff0000" }),
+      clip({ layer: 1, color: "#0000ff", fadeInMs: 1000 }),
+    ]);
+    expect(colorAt(s, centre, 500)).toBe("#000080");
+  });
+
+  it("fades a moving polygon", () => {
+    const s = show([
+      clip({
+        startMs: 0,
+        endMs: 1000,
+        fadeInMs: 500,
+        shape: {
+          kind: "polygon",
+          points: rect(0, 0, 1, 1),
+          moveTo: { x: 0, y: 0.1 },
+        },
+      }),
+    ]);
+    expect(colorAt(s, { x: 0.5, y: 0.5 }, 250)).toBe("#808080");
+  });
+});
+
+describe("benchmark", () => {
+  it("compiles a 3-minute show for one seat in under 10 ms", () => {
+    // 3 minutes of mixed content: a fill every 2 s, a wave every 4 s across
+    // the venue, and fading polygon blocks on two layers.
+    const clips: Clip[] = [];
+    for (let t = 0; t < 180_000; t += 2000) {
+      clips.push(
+        clip({ layer: 0, startMs: t, endMs: t + 1000, color: "#202020" }),
+      );
+    }
+    for (let t = 0; t < 180_000; t += 4000) {
+      clips.push(
+        clip({
+          layer: 1,
+          startMs: t,
+          endMs: t + 2000,
+          color: "#00ffcc",
+          shape: {
+            kind: "polygon",
+            points: rect(0, 0, 0.2, 1),
+            moveTo: { x: 0.8, y: 0 },
+          },
+        }),
+      );
+      clips.push(
+        clip({
+          layer: 2,
+          startMs: t + 1000,
+          endMs: t + 3000,
+          color: "#ff00ff",
+          fadeInMs: 300,
+          fadeOutMs: 300,
+          shape: { kind: "polygon", points: rect(0.3, 0.3, 0.7, 0.7) },
+        }),
+      );
+    }
+    const s = show(clips, 180_000);
+    const seat = { x: 0.5, y: 0.5 };
+
+    for (let i = 0; i < 5; i++) compileSchedule(s, seat); // warm up the JIT
+    const runs = 20;
+    const t0 = performance.now();
+    let events = 0;
+    for (let i = 0; i < runs; i++)
+      events = compileSchedule(s, seat).events.length;
+    const avgMs = (performance.now() - t0) / runs;
+
+    console.log(
+      `compileSchedule: 3-minute show, ${clips.length} clips, ${events} events, ${avgMs.toFixed(2)} ms per compile`,
+    );
+    expect(events).toBeGreaterThan(100);
+    // Target is 10 ms (DEVELOPMENT.md chunk 9). CI runners are slow and
+    // noisy, so the hard limit there is looser; the log line shows the real number.
+    expect(avgMs).toBeLessThan(process.env.CI ? 50 : 10);
+  });
+});
