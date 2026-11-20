@@ -11,11 +11,14 @@ const dataDir = withTempDataDir();
 function uploadRequest(file: File | string | null): Request {
   const form = new FormData();
   if (file !== null) form.set("file", file);
-  return new Request("http://test/api/audio", { method: "POST", body: form });
+  return new Request("http://localhost/api/audio", {
+    method: "POST",
+    body: form,
+  });
 }
 
 function getRequest(range?: string): Request {
-  return new Request("http://test/api/audio/x", {
+  return new Request("http://localhost/api/audio/x", {
     headers: range ? { range } : {},
   });
 }
@@ -103,7 +106,7 @@ describe("/api/audio", () => {
         )
       ).status,
     ).toBe(415);
-    const notForm = new Request("http://test/api/audio", {
+    const notForm = new Request("http://localhost/api/audio", {
       method: "POST",
       body: "x",
     });
@@ -133,7 +136,7 @@ describe("/api/audio", () => {
       },
     });
     // No Content-Length: the body streams in chunks of unknown total size.
-    const request = new Request("http://test/api/audio", {
+    const request = new Request("http://localhost/api/audio", {
       method: "POST",
       headers: { "content-type": "multipart/form-data; boundary=x" },
       body,
@@ -147,7 +150,7 @@ describe("/api/audio", () => {
   });
 
   it("replies 413 when Content-Length is over the cap", async () => {
-    const request = new Request("http://test/api/audio", {
+    const request = new Request("http://localhost/api/audio", {
       method: "POST",
       headers: { "content-length": String(MAX_AUDIO_BYTES + 1) },
     });
@@ -157,13 +160,13 @@ describe("/api/audio", () => {
   it("refuses cross-site uploads with 403", async () => {
     const crossSite: Record<string, string>[] = [
       { "sec-fetch-site": "cross-site" },
-      { origin: "https://evil.example", host: "aurora.example" },
+      { origin: "https://evil.example", host: "localhost:3000" },
     ];
     for (const headers of crossSite) {
       const form = new FormData();
       form.set("file", new File([bytes], "a.mp3"));
       const res = await upload.POST(
-        new Request("http://test/api/audio", {
+        new Request("http://localhost/api/audio", {
           method: "POST",
           headers,
           body: form,
@@ -171,5 +174,26 @@ describe("/api/audio", () => {
       );
       expect(res.status, JSON.stringify(headers)).toBe(403);
     }
+  });
+
+  it("refuses unknown Host headers with 403", async () => {
+    const fileId = await uploadMp3();
+    const res = await item.GET(
+      new Request("http://localhost/api/audio/x", {
+        headers: { host: "rebind.evil.example" },
+      }),
+      ctx(fileId),
+    );
+    expect(res.status).toBe(403);
+    const form = new FormData();
+    form.set("file", new File([bytes], "a.mp3"));
+    const up = await upload.POST(
+      new Request("http://localhost/api/audio", {
+        method: "POST",
+        headers: { host: "rebind.evil.example" },
+        body: form,
+      }),
+    );
+    expect(up.status).toBe(403);
   });
 });

@@ -2,7 +2,7 @@ import { audioExtFor, MAX_AUDIO_BYTES, saveAudio } from "@/server/audio-store";
 import {
   errorResponse,
   readBodyWithLimit,
-  rejectCrossSite,
+  guardApiRequest,
 } from "@/server/http";
 
 export const runtime = "nodejs";
@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
  * `show.audio.fileId`.
  */
 export async function POST(request: Request): Promise<Response> {
-  const refused = rejectCrossSite(request);
+  const refused = guardApiRequest(request, { write: true });
   if (refused) return refused;
 
   const declared = Number(request.headers.get("content-length") ?? "0");

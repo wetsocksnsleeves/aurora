@@ -8,6 +8,10 @@ export type ParseResult<T> =
   { ok: true; value: T } | { ok: false; error: string };
 
 export const DEFAULT_SHOW_NAME = "Untitled show";
+/** Size caps, so one request cannot store or later compile an unbounded show. */
+export const MAX_CLIPS = 2000;
+export const MAX_VENUE_SHAPES = 200;
+export const MAX_POLYGON_POINTS = 500;
 const MAX_NAME_LENGTH = 200;
 
 class InvalidInput extends Error {}
@@ -57,6 +61,9 @@ function parsePolygon(
 ): Point[] {
   if (!Array.isArray(value)) fail(`${at} must be an array`);
   if (value.length < 3) fail(`${at} needs at least 3 points`);
+  if (value.length > MAX_POLYGON_POINTS) {
+    fail(`${at} has more than ${MAX_POLYGON_POINTS} points`);
+  }
   return value.map((p, i) => parsePoint(p, `${at}[${i}]`, normalised));
 }
 
@@ -73,6 +80,9 @@ function parseName(value: unknown): string {
 function parseVenue(value: unknown): Venue {
   if (!isRecord(value)) fail("venue must be an object");
   if (!Array.isArray(value.shapes)) fail("venue.shapes must be an array");
+  if (value.shapes.length > MAX_VENUE_SHAPES) {
+    fail(`venue has more than ${MAX_VENUE_SHAPES} shapes`);
+  }
   const ids = new Set<string>();
   const shapes = value.shapes.map((shape, i) => {
     const at = `venue.shapes[${i}]`;
@@ -142,6 +152,7 @@ function parseClip(value: unknown, at: string): Clip {
 
 function parseClips(value: unknown): Clip[] {
   if (!Array.isArray(value)) fail("clips must be an array");
+  if (value.length > MAX_CLIPS) fail(`show has more than ${MAX_CLIPS} clips`);
   return value.map((clip, i) => parseClip(clip, `clips[${i}]`));
 }
 
