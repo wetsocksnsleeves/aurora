@@ -1,0 +1,31 @@
+# dependencies
+/node_modules
+
+# testing
+/coverage
+/test-results
+/playwright-report
+
+# next.js
+/.next/
+/.next-test/
+/out/
+next-env.d.ts
+
+# compiled custom server
+/dist/
+
+# app data (SQLite, uploaded audio)
+/data/
+
+# misc
+.DS_Store
+*.pem
+*.tsbuildinfo
+
+# env files
+.env*
+!.env.example
+
+# debug
+npm-debug.log*
