@@ -38,6 +38,7 @@ Build:
 - `server.ts`: `http.createServer`, Next request handler, `ws` server on `/ws`. Other upgrade paths go to `app.getUpgradeHandler()` (5.1).
 - `npm run dev` runs `tsx watch server.ts`. `npm run build && npm start` runs the compiled server.
 - Empty `lib/` and `scripts/` folders, Vitest, ESLint, Prettier.
+- GitHub Actions CI on pull requests: `typecheck`, `lint`, `test`, `build`. Every later chunk merges only when CI passes.
 - `.env.example` with `PORT` and `PUBLIC_URL` (the URL the QR code points to, set to the tunnel URL in demos).
 
 Done when:
@@ -125,7 +126,7 @@ Build:
 - Report from 6.2: sync error p50/p95/max, join-to-standby p50/p95. Exit code 1 if p95 is over 50 ms.
 - Simulated dots appear on the host map, so the test wave is visible sweeping across.
 
-Done when: `npx tsx scripts/sim.ts --clients 200` passes with default faults, and a run with an injected bug (for example slew disabled) fails.
+Done when: `npx tsx scripts/sim.ts --clients 500` passes with default faults, and a run with an injected bug (for example slew disabled) fails.
 
 ### Chunk 7. Playwright browser sync test
 
@@ -142,8 +143,8 @@ Done when: it passes with `npm run test:e2e` locally.
 Build:
 
 - `lib/compile.ts`: `compileSchedule(show, seat): Schedule`, sampling at 20 ms, point-in-polygon by ray casting, highest layer wins, run-length encoded (3.3).
-- The server compiles on `ready` and on `seat` after ready, replacing `testSchedule`.
-- Seat outside every venue shape: decide per the open question in spec section 8 (proposal: snap to the nearest edge).
+- The server compiles on `ready` and on `seat` after ready, replacing `testSchedule`. Compiles run on a `worker_threads` worker so `sync` replies are not delayed (3.3).
+- A seat outside every venue shape snaps to the nearest point on the nearest edge (spec section 8).
 
 Done when: unit tests cover fill, static polygon, layering, and a seat exactly on a polygon edge.
 
@@ -221,14 +222,6 @@ Run: 5 to 10 phones (mixed iOS and Android), on venue-like wifi and on mobile da
 
 Done when: results are written to `docs/device-test.md`, with the spread per flash and any device that was consistently late.
 
-## Decisions needed
+## Decisions
 
-These are open questions from spec section 8 that block a chunk:
-
-| Question | Blocks |
-| --- | --- |
-| Seat tapped outside every shape | Chunk 8 |
-| Colours beyond white in the editor UI | Chunk 13 |
-| Rectangles only, or curved venue sections | Chunk 11 |
-| Host authentication | Chunk 15 |
-| Expected participant count | Chunk 6 (sets the default `--clients`) |
+Spec section 8 records the decisions that chunks 6, 8, 11, 13 and 15 depend on: 500 participants, any colour, straight-edged polygons, snap-to-edge for stray seats, no host auth, and a show snapshot per session.

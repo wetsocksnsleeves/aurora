@@ -116,6 +116,8 @@ A 3-minute show with mostly solid blocks compresses to a few hundred events. Fad
 
 The server computes the schedule when the participant taps Ready, matching the flow above. The compiler is a pure function shared by the server, the editor preview, and the test harness.
 
+The server runs the compiler on a `worker_threads` worker. A compile takes 2 to 5 ms, so 100 phones tapping Ready in the same second would block the event loop for up to 0.5 s if it ran on the main thread. `sync` replies queued behind that block return with inflated RTT, which delays every phone's ready gate.
+
 Decision: the server sends each phone its own schedule. The other option is to send the whole show to every phone and let each phone compute its own sequence from its seat. Both handle positional differences, because the seat is the only per-phone input either way.
 
 | | Server sends per-seat schedule (chosen) | Server sends whole show, phone computes |
@@ -263,6 +265,8 @@ Next.js constraints:
 
 HTTPS is required for wake lock and for phones to trust the QR link. For local demos, run behind a tunnel (cloudflared or ngrok) or deploy to a host with TLS.
 
+Cloudflare quick tunnels (`trycloudflare.com`, no account) allow 200 requests in flight and return 429 beyond that. Each WebSocket is a long-lived request, so assume it holds a slot. Quick tunnels are fine for development with a few phones. For a show, use a named Cloudflare tunnel on an account, or a VM with TLS.
+
 ### 5.2 WebSocket messages
 
 All messages are JSON with a `type` field.
@@ -311,7 +315,7 @@ The harness simulates participants so sync can be tested without a room full of 
 
 A Node CLI, `scripts/sim.ts` (run with `tsx`), that imports `lib/` directly and:
 
-1. Opens N WebSocket connections to a session (default 200).
+1. Opens N WebSocket connections to a session (default 500).
 2. Picks random seats inside the venue polygons.
 3. Runs the full participant flow: join, seat, ready, handshake, schedule, standby.
 4. On `start`, records for each schedule event the true time it would render. Each client runs the same `ClockSync` module as the browser, so the harness tests the real sync code.
@@ -357,10 +361,17 @@ Line up 5 to 10 phones, run a test show of hard black and white flashes, and fil
 
 ## 8. Open questions
 
-- Expected participant count? One Node process handles a few thousand WebSockets. Beyond that, the broadcast and Ready-time compile need a look.
-- Colours beyond white? The model supports any colour. The editor UI could start with white only.
-- Venue shapes: are rectangles enough, or are curved sections (stadium bowls) needed?
-- What happens when a participant taps outside every venue shape? Proposal: snap to the nearest shape edge.
-- Host authentication: none for the hackathon, or a simple password?
-- Should the host be able to edit a show while a session is live? Proposal: no, the session uses a snapshot of the show taken at host time.
+Decided for the first version:
+
+| Question | Decision |
+| --- | --- |
+| Participant count | Target 500 per session. One Node process holds that many WebSockets. The join burst is about 3,500 small messages per second each way for 2 s. Venue wifi is the likelier limit: plan for several enterprise access points or mobile data. |
+| Colours | Any colour, picked per clip. |
+| Venue shapes | Rectangles and straight-edged polygons. Approximate curves with polygons. |
+| Seat outside every shape | Snap to the nearest point on the nearest shape edge. |
+| Host authentication | None. |
+| Editing during a live session | Not allowed. The session uses a snapshot of the show taken at host time. |
+
+Still open:
+
 - Is the venue wifi reliable enough, or do participants need to use mobile data? Sync works on either, but mobile data has higher and more variable latency, so convergence takes longer.
