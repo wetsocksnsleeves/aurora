@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Show } from "@/lib/types";
 import { saveShow } from "./api";
 import type { Size } from "./geometry";
-import { handleEditorKey, isTypingTarget } from "./keyboard";
+import { handleEditorKey, isTypingTarget, timelineKeys } from "./keyboard";
 import { DEFAULT_LAYERS } from "./layers";
 import {
   createEditorStore,
@@ -18,7 +18,9 @@ import {
   useEditorSelector,
   useEditorStore,
 } from "./store-context";
+import { Timeline } from "./Timeline";
 import { Toolbar } from "./Toolbar";
+import { Transport } from "./Transport";
 import { toolHandlers } from "./tools";
 import { VenueCanvas } from "./VenueCanvas";
 import styles from "./editor.module.css";
@@ -68,7 +70,11 @@ function EditorLayout() {
         return;
       }
       if (isTypingTarget(e.target)) return;
-      if (handleEditorKey(e, store, canvasSize.current)) e.preventDefault();
+      if (
+        handleEditorKey(e, store, canvasSize.current, [timelineKeys(store)])
+      ) {
+        e.preventDefault();
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -106,6 +112,8 @@ function EditorLayout() {
           canvasSize.current = size;
         }}
       />
+      <Transport />
+      <Timeline />
     </main>
   );
 }

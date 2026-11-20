@@ -1,4 +1,5 @@
 import type { Point, Show, Venue } from "@/lib/types";
+import { DEFAULT_SNAP, snapTime, type SnapSettings } from "./snap";
 
 /**
  * Editor state: one reducer, one store. Everything the editor shows is derived
@@ -22,6 +23,14 @@ export type Draft =
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
+/** Loading state of the waveform/audio engine, separate from `show.audio`. */
+export type AudioStatus = "none" | "uploading" | "loading" | "ready" | "error";
+
+/** Timeline zoom limits in pixels per second of audio. */
+export const MIN_ZOOM_PX_PER_SEC = 5;
+export const MAX_ZOOM_PX_PER_SEC = 1000;
+export const DEFAULT_ZOOM_PX_PER_SEC = 20;
+
 export type EditorState = {
   /** The working copy of the show. Saved through the API as a whole. */
   show: Show;
@@ -34,6 +43,19 @@ export type EditorState = {
   tool: ToolId;
   selection: Selection;
   draft: Draft | null;
+
+  // Timeline (chunk 12). The audio engine (Timeline.tsx) reports time with
+  // `tick` and follows `seek`, `setPlaying` and `setZoom`. Anything that
+  // animates with the playhead (clip overlay, preview) reads `currentTimeMs`.
+  /** Playhead position in show time. */
+  currentTimeMs: number;
+  playing: boolean;
+  /** Bumped by `seek`, so the audio engine can tell a seek request from its own ticks. */
+  seekSeq: number;
+  zoomPxPerSec: number;
+  snap: SnapSettings;
+  audioStatus: AudioStatus;
+  audioError: string | null;
 };
 
 export type EditorAction =
@@ -49,7 +71,17 @@ export type EditorAction =
   | { type: "saveStarted" }
   /** `revision` is the revision that was sent, `show` is the server's reply. */
   | { type: "saveSucceeded"; revision: number; show: Show }
-  | { type: "saveFailed"; error: string };
+  | { type: "saveFailed"; error: string }
+  /** From the audio engine while playing or after it moved the playhead. */
+  | { type: "tick"; timeMs: number }
+  /** Move the playhead. Clamped to the audio duration; not snapped (use `snapTime`). */
+  | { type: "seek"; timeMs: number }
+  | { type: "setPlaying"; playing: boolean }
+  | { type: "setZoom"; pxPerSec: number }
+  | { type: "setSnap"; snap: Partial<SnapSettings> }
+  | { type: "setAudioStatus"; status: AudioStatus; error?: string }
+  /** A new or re-measured audio file for the show. */
+  | { type: "setShowAudio"; audio: Show["audio"] };
 
 export function initialEditorState(show: Show): EditorState {
   return {
@@ -61,7 +93,23 @@ export function initialEditorState(show: Show): EditorState {
     tool: "select",
     selection: null,
     draft: null,
+    currentTimeMs: 0,
+    playing: false,
+    seekSeq: 0,
+    zoomPxPerSec: DEFAULT_ZOOM_PX_PER_SEC,
+    snap: DEFAULT_SNAP,
+    audioStatus: show.audio.fileId ? "loading" : "none",
+    audioError: null,
   };
+}
+
+/** Clamp to [0, duration]; no upper bound while the duration is unknown. */
+export function clampToShow(state: EditorState, timeMs: number): number {
+  return snapTime(
+    timeMs,
+    { ...DEFAULT_SNAP, mode: "off" },
+    state.show.audio.durationMs,
+  );
 }
 
 export function isDirty(state: EditorState): boolean {
@@ -160,6 +208,67 @@ export function editorReducer(
 
     case "saveFailed":
       return { ...state, saveStatus: "error", saveError: action.error };
+
+    case "tick": {
+      const timeMs = clampToShow(state, action.timeMs);
+      return timeMs === state.currentTimeMs
+        ? state
+        : { ...state, currentTimeMs: timeMs };
+    }
+
+    case "seek":
+      return {
+        ...state,
+        currentTimeMs: clampToShow(state, action.timeMs),
+        seekSeq: state.seekSeq + 1,
+      };
+
+    case "setPlaying":
+      if (action.playing === state.playing) return state;
+      // Nothing to play without loaded audio.
+      if (action.playing && state.audioStatus !== "ready") return state;
+      return { ...state, playing: action.playing };
+
+    case "setZoom": {
+      const pxPerSec = Math.min(
+        MAX_ZOOM_PX_PER_SEC,
+        Math.max(MIN_ZOOM_PX_PER_SEC, action.pxPerSec),
+      );
+      return pxPerSec === state.zoomPxPerSec
+        ? state
+        : { ...state, zoomPxPerSec: pxPerSec };
+    }
+
+    case "setSnap":
+      return { ...state, snap: { ...state.snap, ...action.snap } };
+
+    case "setAudioStatus":
+      return {
+        ...state,
+        audioStatus: action.status,
+        audioError:
+          action.status === "error"
+            ? (action.error ?? "audio failed to load")
+            : null,
+        playing: action.status === "ready" ? state.playing : false,
+      };
+
+    case "setShowAudio": {
+      const { fileId, durationMs } = state.show.audio;
+      if (
+        fileId === action.audio.fileId &&
+        durationMs === action.audio.durationMs
+      )
+        return state;
+      const next = withShow(state, { ...state.show, audio: action.audio });
+      const newFile = fileId !== action.audio.fileId;
+      return {
+        ...next,
+        currentTimeMs: newFile ? 0 : clampToShow(next, state.currentTimeMs),
+        seekSeq: newFile ? state.seekSeq + 1 : state.seekSeq,
+        playing: newFile ? false : state.playing,
+      };
+    }
   }
 }
 

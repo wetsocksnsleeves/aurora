@@ -1,6 +1,7 @@
 import type { EditorStore } from "./store";
 import { toolHandlers, type ToolContext } from "./tools";
 import type { Size } from "./geometry";
+import { stepTime } from "./snap";
 
 /** True when the key event belongs to a text field, not the editor. */
 export function isTypingTarget(target: EventTarget | null): boolean {
@@ -59,4 +60,33 @@ export function handleEditorKey(
     }
   }
   return false;
+}
+
+/**
+ * Timeline keys: Space plays or pauses, Left and Right move the playhead to
+ * the previous or next grid point.
+ */
+export function timelineKeys(store: EditorStore): (input: KeyInput) => boolean {
+  return (input) => {
+    if (input.ctrlKey || input.metaKey || input.altKey) return false;
+    const state = store.getState();
+    if (input.key === " ") {
+      store.dispatch({ type: "setPlaying", playing: !state.playing });
+      return true;
+    }
+    if (input.key === "ArrowLeft" || input.key === "ArrowRight") {
+      const direction = input.key === "ArrowRight" ? 1 : -1;
+      store.dispatch({
+        type: "seek",
+        timeMs: stepTime(
+          state.currentTimeMs,
+          direction,
+          state.snap,
+          state.show.audio.durationMs,
+        ),
+      });
+      return true;
+    }
+    return false;
+  };
 }

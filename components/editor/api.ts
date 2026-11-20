@@ -39,3 +39,18 @@ export async function saveShow(show: Show): Promise<Show> {
   if (!res.ok) throw await errorFrom(res);
   return ((await res.json()) as { show: Show }).show;
 }
+
+/** Upload an mp3, wav or m4a file. Returns the id to store in `show.audio.fileId`. */
+export async function uploadAudio(
+  file: File,
+): Promise<{ fileId: string; url: string }> {
+  const form = new FormData();
+  form.set("file", file);
+  const res = await fetch("/api/audio", { method: "POST", body: form });
+  if (!res.ok) throw await errorFrom(res);
+  return (await res.json()) as { fileId: string; url: string };
+}
+
+export function audioUrl(fileId: string): string {
+  return `/api/audio/${encodeURIComponent(fileId)}`;
+}
