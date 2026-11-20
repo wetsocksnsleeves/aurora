@@ -45,21 +45,31 @@ function paintClip(
 
 /**
  * Clips active at the playhead, drawn translucent bottom to top, with moving
- * shapes at their interpolated position and fades applied. The selected clip
- * is outlined (dashed when the playhead is outside it), and a selected moving
- * shape also shows where it ends.
+ * shapes at their interpolated position and fades applied. Hidden while the
+ * canvas shows preview dots instead.
  */
 export const clipOverlayLayer: CanvasLayer = {
   id: "clipOverlay",
   draw({ ctx, size, state }) {
+    if (state.previewMode !== "clips") return;
     const t = state.currentTimeMs;
     for (const clip of activeClips(state.show.clips, t)) {
       ctx.globalAlpha = OVERLAY_ALPHA * fadeEnvelope(clip, t);
       ctx.fillStyle = clip.color;
       paintClip(ctx, state, clip, t, size, "fill");
     }
-    ctx.globalAlpha = 1;
+  },
+};
 
+/**
+ * The selected clip's outline, over the overlay or the preview dots: solid
+ * while the playhead is inside the clip, dashed at its start position
+ * otherwise. A selected moving shape also shows where it ends.
+ */
+export const clipSelectionLayer: CanvasLayer = {
+  id: "clipSelection",
+  draw({ ctx, size, state }) {
+    const t = state.currentTimeMs;
     const selection = state.selection;
     if (selection?.kind !== "clip") return;
     const clip = state.show.clips.find((c) => c.id === selection.id);

@@ -1,6 +1,11 @@
-import { clipDraftLayer, clipOverlayLayer } from "./clip-layers";
+import {
+  clipDraftLayer,
+  clipOverlayLayer,
+  clipSelectionLayer,
+} from "./clip-layers";
 import { COLORS, tracePolygon } from "./draw";
 import { toPx, type Size } from "./geometry";
+import { previewLayer } from "./preview-layer";
 import type { EditorState } from "./store";
 
 /**
@@ -113,14 +118,17 @@ export const draftLayer: CanvasLayer = {
 };
 
 /**
- * Layers bottom to top: the clip overlay (clip-layers.ts) sits on the venue,
- * under the venue selection and drafts. Chunk 14 adds its preview dots after
- * the clip overlay. The editor passes the list to `<VenueCanvas layers>`.
+ * Layers bottom to top: on the venue, either the clip overlay (clip-layers.ts)
+ * or the preview dots (preview-layer.ts), depending on `previewMode`; then
+ * the selected clip's outline, the venue selection and drafts. The editor
+ * passes the list to `<VenueCanvas layers>`.
  */
 export const DEFAULT_LAYERS: CanvasLayer[] = [
   backgroundLayer,
   venueLayer,
   clipOverlayLayer,
+  previewLayer,
+  clipSelectionLayer,
   selectionLayer,
   draftLayer,
   clipDraftLayer,
