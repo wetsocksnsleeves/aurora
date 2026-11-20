@@ -22,7 +22,7 @@ The order puts the risky part first: sync is built and measured before the edito
 | 11 | Editor: venue drawing | 4. Editor | 10 | [x] |
 | 12 | Editor: audio import and timeline | 4. Editor | 10 | [x] |
 | 13 | Editor: clip tools | 4. Editor | 9, 11, 12 | [x] |
-| 14 | Editor: preview | 4. Editor | 13 | [ ] |
+| 14 | Editor: preview | 4. Editor | 13 | [x] |
 | 15 | Show list and host flow with audio | 5. Save and host | 5, 10, 14 | [ ] |
 | 16 | Real-device test | 6. Real-device test | 15 | [ ] |
 

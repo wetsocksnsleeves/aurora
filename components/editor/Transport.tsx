@@ -9,7 +9,11 @@ import {
   formatTime,
   type SnapMode,
 } from "./snap";
-import { MAX_ZOOM_PX_PER_SEC, MIN_ZOOM_PX_PER_SEC } from "./store";
+import {
+  MAX_ZOOM_PX_PER_SEC,
+  MIN_ZOOM_PX_PER_SEC,
+  type PreviewMode,
+} from "./store";
 import { useEditorSelector, useEditorStore } from "./store-context";
 import styles from "./editor.module.css";
 
@@ -20,12 +24,13 @@ const SNAP_LABELS: Record<SnapMode, string> = {
   beat: "Beat",
 };
 
-/** Play/pause, time readout, zoom, snap grid and audio upload. */
+/** Play/pause, time readout, preview toggle, zoom, snap grid and audio upload. */
 export function Transport() {
   return (
     <div className={styles.transport}>
       <PlayButton />
       <TimeReadout />
+      <PreviewToggle />
       <span className={styles.separator} />
       <ZoomControl />
       <span className={styles.separator} />
@@ -60,6 +65,37 @@ function TimeReadout() {
   return (
     <span className={styles.time} aria-label="Playhead time">
       {formatTime(time)} / {formatTime(duration)}
+    </span>
+  );
+}
+
+const PREVIEW_LABELS: Record<PreviewMode, string> = {
+  clips: "Clips",
+  dots: "Seats",
+};
+
+/** Switches the canvas between the clip overlay and the simulated seat dots. */
+function PreviewToggle() {
+  const store = useEditorStore();
+  const mode = useEditorSelector((s) => s.previewMode);
+  return (
+    <span className={styles.segmented} role="group" aria-label="Canvas view">
+      {(["clips", "dots"] as const).map((m) => (
+        <button
+          key={m}
+          type="button"
+          className={`${styles.button} ${m === mode ? styles.buttonActive : ""}`}
+          aria-pressed={m === mode}
+          title={
+            m === "dots"
+              ? "Simulated seats, coloured as phones will be"
+              : "Clip shapes at the playhead"
+          }
+          onClick={() => store.dispatch({ type: "setPreviewMode", mode: m })}
+        >
+          {PREVIEW_LABELS[m]}
+        </button>
+      ))}
     </span>
   );
 }

@@ -50,6 +50,12 @@ export type Draft =
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
+/**
+ * What the venue canvas shows for the playhead: translucent clip shapes, or
+ * simulated seat dots coloured as phones would be (chunk 14).
+ */
+export type PreviewMode = "clips" | "dots";
+
 /** Loading state of the waveform/audio engine, separate from `show.audio`. */
 export type AudioStatus = "none" | "uploading" | "loading" | "ready" | "error";
 
@@ -72,6 +78,7 @@ export type EditorState = {
   draft: Draft | null;
   /** Colour for newly drawn clips. */
   clipColor: string;
+  previewMode: PreviewMode;
 
   // Timeline (chunk 12). The audio engine (Timeline.tsx) reports time with
   // `tick` and follows `seek`, `setPlaying` and `setZoom`. Anything that
@@ -96,6 +103,7 @@ export type EditorAction =
   | { type: "setVenueShapePoints"; id: string; points: Point[] }
   | { type: "deleteVenueShape"; id: string }
   | { type: "setClipColor"; color: string }
+  | { type: "setPreviewMode"; mode: PreviewMode }
   /** Appends a clip and selects it. */
   | { type: "addClip"; clip: Clip }
   /** Changes a clip; times and fades are repaired (see `patchClip`). */
@@ -134,6 +142,7 @@ export function initialEditorState(show: Show): EditorState {
     selection: null,
     draft: null,
     clipColor: DEFAULT_CLIP_COLOR,
+    previewMode: "clips",
     currentTimeMs: 0,
     playing: false,
     seekSeq: 0,
@@ -224,6 +233,11 @@ export function editorReducer(
       return action.color === state.clipColor
         ? state
         : { ...state, clipColor: action.color };
+
+    case "setPreviewMode":
+      return action.mode === state.previewMode
+        ? state
+        : { ...state, previewMode: action.mode };
 
     case "addClip":
       return {
