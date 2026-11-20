@@ -1,3 +1,4 @@
+import { CreateShowButton } from "@/components/shows/CreateShowButton";
 import { NewTestSessionButton } from "./NewTestSessionButton";
 import styles from "./page.module.css";
 
@@ -8,6 +9,12 @@ export default function Home() {
       <p className={styles.subtitle}>
         Synchronised light shows on phone screens.
       </p>
+      <div className={styles.actions}>
+        <CreateShowButton
+          className={styles.button}
+          errorClassName={styles.error}
+        />
+      </div>
       <NewTestSessionButton />
     </main>
   );
