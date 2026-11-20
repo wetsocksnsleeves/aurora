@@ -65,16 +65,45 @@ export function rejectDisallowedHost(request: Request): Response | null {
   return isAllowedHost(host) ? null : errorResponse(403, "unknown host");
 }
 
+/** The origin of a URL string, or null for "null" and malformed values. */
+function originOf(value: string): string | null {
+  try {
+    const origin = new URL(value).origin;
+    // Opaque origins (data:, file:, ...) serialise as "null".
+    return origin === "null" ? null : origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The origin this request was sent to: the Host header with the scheme from
+ * `x-forwarded-proto` (set by a TLS tunnel or proxy), else http.
+ */
+export function requestOrigin(request: Request): string | null {
+  const host = request.headers.get("host") ?? new URL(request.url).host;
+  const forwarded = request.headers.get("x-forwarded-proto");
+  const proto = forwarded?.split(",")[0].trim().toLowerCase() || "http";
+  if (proto !== "http" && proto !== "https") return null;
+  return originOf(`${proto}://${host}`);
+}
+
 /**
  * There is no host login (SPEC section 8), so write routes only accept
- * requests from the app's own pages. This blocks a page on another site from
- * using the visitor's browser to change or delete shows.
+ * requests from the app's own pages. This blocks a page on another site, or
+ * another app on a different localhost port, from using the visitor's
+ * browser to change or delete shows.
  *
  * Returns a 403 response to send, or null when the request may proceed.
  * - `Sec-Fetch-Site` (sent by current browsers) must be `same-origin` or
  *   `none` (typed URL, curl-like tools that copy it).
- * - Without it, an `Origin` header, if present, must name an allowed host.
+ * - Without it, an `Origin` header, if present, must equal exactly (scheme,
+ *   host and port) the request's own origin or the origin of `PUBLIC_URL`.
+ *   `null` and malformed origins are refused.
  * - Requests with neither (curl, tests, server-to-server) are allowed.
+ *
+ * The Host allowlist (`rejectDisallowedHost`) runs before this, so the
+ * request's own origin is always on an allowed host.
  */
 export function rejectCrossSite(request: Request): Response | null {
   const site = request.headers.get("sec-fetch-site");
@@ -83,10 +112,15 @@ export function rejectCrossSite(request: Request): Response | null {
       ? null
       : errorResponse(403, "cross-site request refused");
   }
-  const origin = request.headers.get("origin");
-  if (origin === null) return null;
-  // "null" and malformed origins fail to parse and are refused.
-  return isAllowedHost(origin)
+  const header = request.headers.get("origin");
+  if (header === null) return null;
+  const origin = originOf(header);
+  const publicUrl = process.env.PUBLIC_URL;
+  const allowed = [
+    requestOrigin(request),
+    publicUrl ? originOf(publicUrl) : null,
+  ];
+  return origin !== null && allowed.includes(origin)
     ? null
     : errorResponse(403, "cross-origin request refused");
 }

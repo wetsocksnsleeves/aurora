@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { proxy } from "@/proxy";
 import {
   allowedHostnames,
+  guardApiRequest,
   hostnameOf,
   MAX_JSON_BYTES,
   readBodyWithLimit,
@@ -45,7 +46,9 @@ describe("rejectCrossSite", () => {
     ).toBeNull();
     expect(rejectCrossSite(req({ "sec-fetch-site": "none" }))).toBeNull();
     expect(
-      rejectCrossSite(req({ origin: "http://localhost:3000", host: "x" })),
+      rejectCrossSite(
+        req({ origin: "http://localhost:3000", host: "localhost:3000" }),
+      ),
     ).toBeNull();
   });
 
@@ -140,13 +143,99 @@ describe("rejectDisallowedHost", () => {
 });
 
 describe("rejectCrossSite with Origin", () => {
-  it("compares Origin to the allowlist, not to Host", () => {
-    // DNS rebinding: attacker controls both headers.
-    const rebinding = new Request("http://localhost/", {
-      method: "POST",
-      headers: { origin: "http://evil.example", host: "evil.example" },
+  const write = (headers: Record<string, string>) =>
+    new Request("http://localhost/api/shows", { method: "POST", headers });
+
+  it("accepts exactly the request's own origin", () => {
+    expect(
+      rejectCrossSite(
+        write({ origin: "http://localhost:3000", host: "localhost:3000" }),
+      ),
+    ).toBeNull();
+    // Behind a TLS tunnel the scheme comes from x-forwarded-proto.
+    expect(
+      rejectCrossSite(
+        write({
+          origin: "https://show.example",
+          host: "show.example",
+          "x-forwarded-proto": "https",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("refuses the same host on another port", () => {
+    for (const origin of ["http://localhost:3001", "http://127.0.0.1:9999"]) {
+      const host = origin.includes("127.0.0.1")
+        ? "127.0.0.1:3000"
+        : "localhost:3000";
+      expect(rejectCrossSite(write({ origin, host }))?.status, origin).toBe(
+        403,
+      );
+    }
+  });
+
+  it("refuses a different scheme", () => {
+    expect(
+      rejectCrossSite(
+        write({ origin: "https://localhost:3000", host: "localhost:3000" }),
+      )?.status,
+    ).toBe(403);
+    expect(
+      rejectCrossSite(
+        write({
+          origin: "http://show.example",
+          host: "show.example",
+          "x-forwarded-proto": "https",
+        }),
+      )?.status,
+    ).toBe(403);
+  });
+
+  it("accepts the PUBLIC_URL origin", () => {
+    const saved = process.env.PUBLIC_URL;
+    process.env.PUBLIC_URL = "https://abc.trycloudflare.com";
+    try {
+      // A tunnel that rewrites Host to the local address.
+      expect(
+        rejectCrossSite(
+          write({
+            origin: "https://abc.trycloudflare.com",
+            host: "localhost:3000",
+          }),
+        ),
+      ).toBeNull();
+      expect(
+        rejectCrossSite(
+          write({
+            origin: "http://abc.trycloudflare.com",
+            host: "localhost:3000",
+          }),
+        )?.status,
+      ).toBe(403);
+    } finally {
+      if (saved === undefined) delete process.env.PUBLIC_URL;
+      else process.env.PUBLIC_URL = saved;
+    }
+  });
+
+  it("refuses null and malformed origins", () => {
+    for (const origin of ["null", "not a url", "file:///etc/passwd"]) {
+      expect(
+        rejectCrossSite(write({ origin, host: "localhost:3000" }))?.status,
+        origin,
+      ).toBe(403);
+    }
+  });
+
+  it("leaves DNS rebinding to the Host allowlist", () => {
+    // Attacker controls both headers, so Origin matches Host; the Host check
+    // in guardApiRequest is what refuses it.
+    const rebinding = write({
+      origin: "http://evil.example",
+      host: "evil.example",
     });
-    expect(rejectCrossSite(rebinding)?.status).toBe(403);
+    expect(guardApiRequest(rebinding, { write: true })?.status).toBe(403);
   });
 });
 
