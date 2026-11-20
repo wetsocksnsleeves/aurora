@@ -1,46 +1,69 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { WebSocket } from "ws";
+import type { WebSocketServer } from "ws";
+import { TEST_SHOW_DURATION_MS, testSchedule } from "@/lib/test-show";
+import { SessionStore } from "./sessions";
 import { rawUpgrade } from "./testing/raw-upgrade";
-import { attachWebSocketServer, type UpgradeHandler } from "./ws";
+import { TestClient } from "./testing/ws-client";
+import {
+  attachWebSocketServer,
+  type AttachOptions,
+  type UpgradeHandler,
+} from "./ws";
 
 let server: Server | undefined;
+let wss: WebSocketServer | undefined;
+let clients: TestClient[] = [];
 
 afterEach(async () => {
+  await Promise.all(clients.map((c) => c.close()));
+  clients = [];
+  wss?.close();
   server?.closeAllConnections();
   await new Promise<void>((resolve) => server?.close(() => resolve()));
   server = undefined;
+  wss = undefined;
 });
-
-async function listen(
-  nextUpgrade: UpgradeHandler,
-  forwardNextUpgrades: boolean,
-): Promise<number> {
-  server = createServer((_req, res) => res.end("ok"));
-  attachWebSocketServer(server, { nextUpgrade, forwardNextUpgrades });
-  await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
-  return (server.address() as AddressInfo).port;
-}
 
 const noop: UpgradeHandler = () => {};
 
-describe("attachWebSocketServer upgrade routing", () => {
-  it("echoes on /ws", async () => {
-    const port = await listen(noop, true);
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
-    await new Promise((resolve) => ws.once("open", resolve));
-    const reply = new Promise<string>((resolve) =>
-      ws.once("message", (data) => resolve(String(data))),
-    );
-    ws.send("hello");
-    expect(await reply).toBe("hello");
-    ws.close();
+async function listen(
+  options: Partial<AttachOptions> = {},
+): Promise<{ port: number; store: SessionStore; url: string }> {
+  const store = options.store ?? new SessionStore();
+  server = createServer((_req, res) => res.end("ok"));
+  wss = attachWebSocketServer(server, {
+    nextUpgrade: noop,
+    forwardNextUpgrades: true,
+    publicUrl: "https://aurora.example",
+    ...options,
+    store,
   });
+  await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  return { port, store, url: `ws://127.0.0.1:${port}/ws` };
+}
 
+async function connect(url: string): Promise<TestClient> {
+  const client = await TestClient.connect(url);
+  clients.push(client);
+  return client;
+}
+
+/** A host with a fresh test-show session. */
+async function hostSession(url: string) {
+  const host = await connect(url);
+  host.send({ type: "host", showId: "test" });
+  const session = await host.next("session");
+  await host.next("participants");
+  return { host, code: session.code };
+}
+
+describe("attachWebSocketServer upgrade routing", () => {
   it("rejects an unknown path with 404 and closes the socket", async () => {
     const nextUpgrade = vi.fn(noop);
-    const port = await listen(nextUpgrade, true);
+    const { port } = await listen({ nextUpgrade });
     const result = await rawUpgrade(port, "/nope");
     expect(result.response).toBe("HTTP/1.1 404 Not Found\r\n\r\n");
     expect(result.closed).toBe(true);
@@ -51,14 +74,14 @@ describe("attachWebSocketServer upgrade routing", () => {
     const nextUpgrade = vi.fn<UpgradeHandler>((_req, socket) => {
       socket.destroy();
     });
-    const port = await listen(nextUpgrade, true);
+    const { port } = await listen({ nextUpgrade });
     await rawUpgrade(port, "/_next/hmr");
     expect(nextUpgrade).toHaveBeenCalledOnce();
   });
 
   it("rejects /_next/* with 404 when forwarding is off (production)", async () => {
     const nextUpgrade = vi.fn(noop);
-    const port = await listen(nextUpgrade, false);
+    const { port } = await listen({ nextUpgrade, forwardNextUpgrades: false });
     const result = await rawUpgrade(port, "/_next/hmr");
     expect(result.response).toBe("HTTP/1.1 404 Not Found\r\n\r\n");
     expect(result.closed).toBe(true);
@@ -67,9 +90,11 @@ describe("attachWebSocketServer upgrade routing", () => {
 
   it("destroys the socket when Next's handler throws", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    const port = await listen(() => {
-      throw new Error("boom");
-    }, true);
+    const { port } = await listen({
+      nextUpgrade: () => {
+        throw new Error("boom");
+      },
+    });
     const result = await rawUpgrade(port, "/_next/hmr");
     expect(result.closed).toBe(true);
     expect(error).toHaveBeenCalled();
@@ -78,12 +103,277 @@ describe("attachWebSocketServer upgrade routing", () => {
 
   it("destroys the socket when Next's handler rejects", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    const port = await listen(async () => {
-      throw new Error("boom");
-    }, true);
+    const { port } = await listen({
+      nextUpgrade: async () => {
+        throw new Error("boom");
+      },
+    });
     const result = await rawUpgrade(port, "/_next/hmr");
     expect(result.closed).toBe(true);
     expect(error).toHaveBeenCalled();
     error.mockRestore();
+  });
+});
+
+describe("message routing", () => {
+  it("host creates a session and gets a join URL and an empty list", async () => {
+    const { url, store } = await listen();
+    const host = await connect(url);
+    host.send({ type: "host", showId: "test" });
+    const session = await host.next("session");
+    expect(session.code).toMatch(/^[A-HJ-NP-Z2-9]{6}$/);
+    expect(session.joinUrl).toBe(`https://aurora.example/j/${session.code}`);
+    expect(session.showId).toBe("test");
+    expect(session.venue.shapes).toHaveLength(2);
+    expect(session.T0).toBeNull();
+    expect(await host.next("participants")).toEqual({
+      type: "participants",
+      list: [],
+    });
+    expect(store.getSession(session.code)).toBeDefined();
+  });
+
+  it("falls back to the connection origin when no public URL is set", async () => {
+    const previous = process.env.PUBLIC_URL;
+    delete process.env.PUBLIC_URL;
+    try {
+      const { url, port } = await listen({ publicUrl: undefined });
+      const host = await connect(url);
+      host.send({ type: "host", showId: "test" });
+      const session = await host.next("session");
+      expect(session.joinUrl).toBe(
+        `http://127.0.0.1:${port}/j/${session.code}`,
+      );
+    } finally {
+      if (previous !== undefined) process.env.PUBLIC_URL = previous;
+    }
+  });
+
+  it("host can re-attach to an existing session by code", async () => {
+    const { url } = await listen();
+    const { code } = await hostSession(url);
+    const second = await connect(url);
+    second.send({ type: "host", code: code.toLowerCase() });
+    expect((await second.next("session")).code).toBe(code);
+  });
+
+  it("rejects an unknown show and an unknown session", async () => {
+    const { url } = await listen();
+    const host = await connect(url);
+    host.send({ type: "host", showId: "nope" });
+    expect((await host.next("error")).reason).toBe("unknown-show");
+
+    const phone = await connect(url);
+    phone.send({ type: "join", code: "ZZZZZZ" });
+    expect((await phone.next("error")).reason).toBe("unknown-session");
+  });
+
+  it("answers bad JSON and out-of-order messages with an error", async () => {
+    const { url } = await listen();
+    const client = await connect(url);
+    client.ws.send("{nope");
+    expect((await client.next("error")).reason).toBe("bad-message");
+    client.send({ type: "seat", x: 0.5, y: 0.5 });
+    expect((await client.next("error")).reason).toBe("not-joined");
+    client.send({ type: "ready" });
+    expect((await client.next("error")).reason).toBe("not-joined");
+  });
+
+  it("join → seat → ready gives welcome, a schedule, and host updates", async () => {
+    const { url } = await listen();
+    const { host, code } = await hostSession(url);
+    const phone = await connect(url);
+
+    phone.send({ type: "join", code });
+    const welcome = await phone.next("welcome");
+    expect(welcome.state).toEqual({
+      participant: "connected",
+      seat: null,
+      T0: null,
+    });
+    expect(welcome.venue.shapes).toHaveLength(2);
+    const id = welcome.participantId;
+    await expect(host.next("participants")).resolves.toMatchObject({
+      list: [{ id, state: "connected", x: null, y: null }],
+    });
+
+    phone.send({ type: "ready" });
+    expect((await phone.next("error")).reason).toBe("no-seat");
+
+    phone.send({ type: "seat", x: 0.25, y: 0.5 });
+    await expect(host.next("participants")).resolves.toMatchObject({
+      list: [{ id, state: "seated", x: 0.25, y: 0.5 }],
+    });
+
+    phone.send({ type: "ready" });
+    const schedule = await phone.next("schedule");
+    expect(schedule.durationMs).toBe(TEST_SHOW_DURATION_MS);
+    expect(schedule.events).toEqual(testSchedule({ x: 0.25, y: 0.5 }).events);
+
+    // Throttled updates may merge syncing and standby; standby must arrive.
+    let latest = await host.next("participants");
+    while (latest.list[0]?.state !== "standby") {
+      latest = await host.next("participants");
+    }
+    expect(latest.list).toEqual([
+      { id, x: 0.25, y: 0.5, state: "standby", rttMs: null, degraded: false },
+    ]);
+  });
+
+  it("moving the seat after Ready sends a new schedule", async () => {
+    const { url } = await listen();
+    const { code } = await hostSession(url);
+    const phone = await connect(url);
+    phone.send({ type: "join", code });
+    await phone.next("welcome");
+    phone.send({ type: "seat", x: 0.1, y: 0.5 });
+    phone.send({ type: "ready" });
+    await phone.next("schedule");
+    phone.send({ type: "seat", x: 0.9, y: 0.5 });
+    const moved = await phone.next("schedule");
+    expect(moved.events).toEqual(testSchedule({ x: 0.9, y: 0.5 }).events);
+  });
+
+  it("reconnect with the previous participantId keeps the participant", async () => {
+    const { url, store } = await listen();
+    const { host, code } = await hostSession(url);
+
+    const first = await connect(url);
+    first.send({ type: "join", code });
+    const { participantId, resumeToken } = await first.next("welcome");
+    first.send({ type: "seat", x: 0.4, y: 0.6 });
+    first.send({ type: "ready" });
+    const schedule = await first.next("schedule");
+    await first.close();
+
+    const session = store.getSession(code)!;
+    await vi.waitFor(() =>
+      expect(session.participants.get(participantId)?.state).toBe(
+        "disconnected",
+      ),
+    );
+    let update = await host.next("participants");
+    while (update.list[0]?.state !== "disconnected") {
+      update = await host.next("participants");
+    }
+
+    const second = await connect(url);
+    second.send({ type: "join", code, participantId, resumeToken });
+    const welcome = await second.next("welcome");
+    expect(welcome.participantId).toBe(participantId);
+    expect(welcome.state).toEqual({
+      participant: "standby",
+      seat: { x: 0.4, y: 0.6 },
+      T0: null,
+    });
+    // The schedule is sent again so the phone can play without a new Ready.
+    expect((await second.next("schedule")).events).toEqual(schedule.events);
+    expect(session.participants.size).toBe(1);
+  });
+
+  it("a rejoin with the right token replaces the old socket", async () => {
+    const { url, store } = await listen();
+    const { code } = await hostSession(url);
+    const first = await connect(url);
+    first.send({ type: "join", code });
+    const { participantId, resumeToken } = await first.next("welcome");
+
+    const second = await connect(url);
+    second.send({ type: "join", code, participantId, resumeToken });
+    await second.next("welcome");
+    await vi.waitFor(() => expect(first.ws.readyState).toBe(first.ws.CLOSED));
+
+    // The old socket's close must not mark the participant disconnected.
+    const p = store.getSession(code)!.participants.get(participantId)!;
+    expect(p.state).toBe("connected");
+  });
+
+  it("a rejoin with a wrong or missing token gets a new participant and leaves the live socket open", async () => {
+    const { url, store } = await listen();
+    const { code } = await hostSession(url);
+    const victim = await connect(url);
+    victim.send({ type: "join", code });
+    const { participantId, resumeToken } = await victim.next("welcome");
+    victim.send({ type: "seat", x: 0.3, y: 0.3 });
+
+    for (const token of [undefined, "wrong", resumeToken.slice(1)]) {
+      const attacker = await connect(url);
+      attacker.send({
+        type: "join",
+        code,
+        participantId,
+        ...(token === undefined ? {} : { resumeToken: token }),
+      });
+      const welcome = await attacker.next("welcome");
+      expect(welcome.participantId).not.toBe(participantId);
+      expect(welcome.resumeToken).not.toBe(resumeToken);
+      expect(welcome.state.seat).toBeNull();
+    }
+
+    // The victim's socket is still open and still drives its participant.
+    expect(victim.ws.readyState).toBe(victim.ws.OPEN);
+    victim.send({ type: "ready" });
+    await victim.next("schedule");
+    const p = store.getSession(code)!.participants.get(participantId)!;
+    expect(p.seat).toEqual({ x: 0.3, y: 0.3 });
+    expect(p.state).toBe("standby");
+  });
+
+  it("never sends resume tokens to the host", async () => {
+    const { url } = await listen({ participantsThrottleMs: 0 });
+    const host = await connect(url);
+    const raw: string[] = [];
+    host.ws.on("message", (data) => raw.push(String(data)));
+    host.send({ type: "host", showId: "test" });
+    const { code } = await host.next("session");
+
+    const phone = await connect(url);
+    phone.send({ type: "join", code });
+    const { participantId, resumeToken } = await phone.next("welcome");
+    phone.send({ type: "seat", x: 0.5, y: 0.5 });
+    phone.send({ type: "ready" });
+    await phone.next("schedule");
+    await vi.waitFor(() =>
+      expect(raw.some((m) => m.includes("standby"))).toBe(true),
+    );
+
+    expect(raw.some((m) => m.includes(participantId))).toBe(true);
+    expect(raw.some((m) => m.includes(resumeToken))).toBe(false);
+    expect(raw.some((m) => m.includes("resumeToken"))).toBe(false);
+  });
+
+  it("throttles participants updates to one per window", async () => {
+    const { url } = await listen({ participantsThrottleMs: 200 });
+    const { host, code } = await hostSession(url);
+    const phones = await Promise.all(
+      Array.from({ length: 10 }, () => connect(url)),
+    );
+    const sentAt = Date.now();
+    for (const phone of phones) phone.send({ type: "join", code });
+    await Promise.all(phones.map((p) => p.next("welcome")));
+
+    // Expect the final state (10 participants) to arrive in at most two
+    // updates: one at once, one at the end of the window.
+    let update = await host.next("participants");
+    let count = 1;
+    while (update.list.length < 10) {
+      update = await host.next("participants");
+      count += 1;
+    }
+    expect(count).toBeLessThanOrEqual(2);
+    expect(Date.now() - sentAt).toBeLessThan(1_000);
+  });
+
+  it("start, stop and sync are refused until later chunks", async () => {
+    const { url } = await listen();
+    const client = await connect(url);
+    for (const message of [
+      { type: "sync", c0: 1 },
+      { type: "start" },
+      { type: "stop" },
+    ] as const) {
+      client.send(message);
+      expect((await client.next("error")).reason).toBe("unsupported");
+    }
   });
 });
