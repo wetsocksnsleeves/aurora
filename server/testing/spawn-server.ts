@@ -1,7 +1,11 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { rm } from "node:fs/promises";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
+
+let spawnCount = 0;
 
 export type SpawnedServer = {
   port: number;
@@ -16,13 +20,16 @@ export type SpawnedServer = {
 
 /**
  * Boot `server.ts` in a child process on a free port (PORT=0) and wait for
- * its "listening" line. Runs Next in dev mode, so no build is needed. Uses
- * `.next-test` as Next's build directory so it can run next to `npm run dev`.
+ * its "listening" line. Runs Next in dev mode, so no build is needed. Each
+ * server gets its own build directory under `.next-test/`, so several test
+ * files and `npm run dev` can run at once without fighting over Next's dev
+ * lock. The directory is removed on `stop()`.
  */
 export async function spawnServer(
   env: Record<string, string> = {},
   timeoutMs = 60_000,
 ): Promise<SpawnedServer> {
+  const distDir = `.next-test/${process.pid}-${spawnCount++}`;
   const child = spawn(process.execPath, ["--import", "tsx", "server.ts"], {
     cwd: repoRoot,
     env: {
@@ -31,7 +38,7 @@ export async function spawnServer(
       PORT: "0",
       HOST: "127.0.0.1",
       NEXT_TELEMETRY_DISABLED: "1",
-      NEXT_DIST_DIR: ".next-test",
+      NEXT_DIST_DIR: distDir,
       ...env,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -65,7 +72,10 @@ export async function spawnServer(
     httpUrl: `http://127.0.0.1:${port}`,
     wsUrl: `ws://127.0.0.1:${port}/ws`,
     output: () => log,
-    stop: () => stopChild(child),
+    stop: async () => {
+      await stopChild(child);
+      await rm(path.join(repoRoot, distDir), { recursive: true, force: true });
+    },
   };
 }
 

@@ -25,6 +25,10 @@ function devOrigins(): string[] {
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Test servers (server/testing/spawn-server.ts) each get their own build
+  // directory, so parallel test files and `npm run dev` don't share Next's
+  // dev lock.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   // Native module: load it with Node's require instead of bundling it.
   serverExternalPackages: ["better-sqlite3"],
   allowedDevOrigins: devOrigins(),
