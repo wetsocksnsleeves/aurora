@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -29,7 +29,16 @@ export async function spawnServer(
   env: Record<string, string> = {},
   timeoutMs = 60_000,
 ): Promise<SpawnedServer> {
-  const distDir = `.next-test/${process.pid}-${spawnCount++}`;
+  const runId = `${process.pid}-${spawnCount++}`;
+  const distDir = `.next-test/${runId}`;
+  // Next dev rewrites the tsconfig it is given (adds distDir to `include`).
+  // Hand it a throwaway one that extends the real tsconfig.json.
+  const tsconfigPath = `.next-test/${runId}.tsconfig.json`;
+  await mkdir(path.join(repoRoot, ".next-test"), { recursive: true });
+  await writeFile(
+    path.join(repoRoot, tsconfigPath),
+    JSON.stringify({ extends: "../tsconfig.json" }, null, 2),
+  );
   const child = spawn(process.execPath, ["--import", "tsx", "server.ts"], {
     cwd: repoRoot,
     env: {
@@ -39,6 +48,7 @@ export async function spawnServer(
       HOST: "127.0.0.1",
       NEXT_TELEMETRY_DISABLED: "1",
       NEXT_DIST_DIR: distDir,
+      NEXT_TSCONFIG_PATH: tsconfigPath,
       ...env,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -75,6 +85,7 @@ export async function spawnServer(
     stop: async () => {
       await stopChild(child);
       await rm(path.join(repoRoot, distDir), { recursive: true, force: true });
+      await rm(path.join(repoRoot, tsconfigPath), { force: true });
     },
   };
 }
