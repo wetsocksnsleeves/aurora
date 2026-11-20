@@ -240,7 +240,7 @@ describe("message routing", () => {
 
     const first = await connect(url);
     first.send({ type: "join", code });
-    const { participantId } = await first.next("welcome");
+    const { participantId, resumeToken } = await first.next("welcome");
     first.send({ type: "seat", x: 0.4, y: 0.6 });
     first.send({ type: "ready" });
     const schedule = await first.next("schedule");
@@ -258,7 +258,7 @@ describe("message routing", () => {
     }
 
     const second = await connect(url);
-    second.send({ type: "join", code, participantId });
+    second.send({ type: "join", code, participantId, resumeToken });
     const welcome = await second.next("welcome");
     expect(welcome.participantId).toBe(participantId);
     expect(welcome.state).toEqual({
@@ -271,21 +271,75 @@ describe("message routing", () => {
     expect(session.participants.size).toBe(1);
   });
 
-  it("a rejoin on a new socket replaces the old socket", async () => {
+  it("a rejoin with the right token replaces the old socket", async () => {
     const { url, store } = await listen();
     const { code } = await hostSession(url);
     const first = await connect(url);
     first.send({ type: "join", code });
-    const { participantId } = await first.next("welcome");
+    const { participantId, resumeToken } = await first.next("welcome");
 
     const second = await connect(url);
-    second.send({ type: "join", code, participantId });
+    second.send({ type: "join", code, participantId, resumeToken });
     await second.next("welcome");
     await vi.waitFor(() => expect(first.ws.readyState).toBe(first.ws.CLOSED));
 
     // The old socket's close must not mark the participant disconnected.
     const p = store.getSession(code)!.participants.get(participantId)!;
     expect(p.state).toBe("connected");
+  });
+
+  it("a rejoin with a wrong or missing token gets a new participant and leaves the live socket open", async () => {
+    const { url, store } = await listen();
+    const { code } = await hostSession(url);
+    const victim = await connect(url);
+    victim.send({ type: "join", code });
+    const { participantId, resumeToken } = await victim.next("welcome");
+    victim.send({ type: "seat", x: 0.3, y: 0.3 });
+
+    for (const token of [undefined, "wrong", resumeToken.slice(1)]) {
+      const attacker = await connect(url);
+      attacker.send({
+        type: "join",
+        code,
+        participantId,
+        ...(token === undefined ? {} : { resumeToken: token }),
+      });
+      const welcome = await attacker.next("welcome");
+      expect(welcome.participantId).not.toBe(participantId);
+      expect(welcome.resumeToken).not.toBe(resumeToken);
+      expect(welcome.state.seat).toBeNull();
+    }
+
+    // The victim's socket is still open and still drives its participant.
+    expect(victim.ws.readyState).toBe(victim.ws.OPEN);
+    victim.send({ type: "ready" });
+    await victim.next("schedule");
+    const p = store.getSession(code)!.participants.get(participantId)!;
+    expect(p.seat).toEqual({ x: 0.3, y: 0.3 });
+    expect(p.state).toBe("standby");
+  });
+
+  it("never sends resume tokens to the host", async () => {
+    const { url } = await listen({ participantsThrottleMs: 0 });
+    const host = await connect(url);
+    const raw: string[] = [];
+    host.ws.on("message", (data) => raw.push(String(data)));
+    host.send({ type: "host", showId: "test" });
+    const { code } = await host.next("session");
+
+    const phone = await connect(url);
+    phone.send({ type: "join", code });
+    const { participantId, resumeToken } = await phone.next("welcome");
+    phone.send({ type: "seat", x: 0.5, y: 0.5 });
+    phone.send({ type: "ready" });
+    await phone.next("schedule");
+    await vi.waitFor(() =>
+      expect(raw.some((m) => m.includes("standby"))).toBe(true),
+    );
+
+    expect(raw.some((m) => m.includes(participantId))).toBe(true);
+    expect(raw.some((m) => m.includes(resumeToken))).toBe(false);
+    expect(raw.some((m) => m.includes("resumeToken"))).toBe(false);
   });
 
   it("throttles participants updates to one per window", async () => {

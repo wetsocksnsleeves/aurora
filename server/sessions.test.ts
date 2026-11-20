@@ -15,10 +15,8 @@ import {
 
 function setup(options: { requireClockSync?: boolean } = {}) {
   let now = 1_000;
-  let nextId = 0;
   const store = new SessionStore({
     now: () => now,
-    newId: () => `p${++nextId}`,
     requireClockSync: options.requireClockSync,
   });
   const session = store.createSession(TEST_SHOW);
@@ -30,6 +28,12 @@ function setup(options: { requireClockSync?: boolean } = {}) {
 }
 
 const SEAT: Point = { x: 0.25, y: 0.5 };
+
+/** What a reconnecting client sends: the id and token from its welcome. */
+function resumeOf(store: SessionStore, session: Session, id: string) {
+  const p = store.getParticipant(session, id);
+  return { participantId: p.id, resumeToken: p.resumeToken };
+}
 
 function scheduleFor(seat: Point): TimedSchedule {
   return { ...testSchedule(seat), durationMs: 20_000 };
@@ -210,7 +214,10 @@ describe("reconnect", () => {
     const oldToken = p.connectionToken;
     store.disconnect(session, id, oldToken);
 
-    const { participant, resumed } = store.join(session, id);
+    const { participant, resumed } = store.join(
+      session,
+      resumeOf(store, session, id),
+    );
     expect(resumed).toBe(true);
     expect(participant).toBe(p);
     expect(participant.id).toBe(id);
@@ -229,7 +236,7 @@ describe("reconnect", () => {
     expect(p.state).toBe("standby");
 
     store.disconnect(session, id, p.connectionToken);
-    store.join(session, id);
+    store.join(session, resumeOf(store, session, id));
     expect(p.state).toBe("syncing");
     expect(p.clock.ready).toBe(false);
   });
@@ -239,7 +246,9 @@ describe("reconnect", () => {
     const { participant: p } = store.join(session);
     store.setSeat(session, p.id, SEAT);
     store.disconnect(session, p.id, p.connectionToken);
-    expect(store.join(session, p.id).participant.state).toBe("seated");
+    expect(
+      store.join(session, resumeOf(store, session, p.id)).participant.state,
+    ).toBe("seated");
   });
 
   it("rejoining a show in progress comes back playing", () => {
@@ -249,7 +258,7 @@ describe("reconnect", () => {
     const p = store.getParticipant(session, id);
     store.disconnect(session, id, p.connectionToken);
     expect(p.state).toBe("disconnected");
-    store.join(session, id);
+    store.join(session, resumeOf(store, session, id));
     expect(p.state).toBe("playing");
   });
 
@@ -258,14 +267,51 @@ describe("reconnect", () => {
     const { participant: p } = store.join(session);
     const oldToken = p.connectionToken;
     // New socket joins before the old one's close arrives.
-    store.join(session, p.id);
+    store.join(session, resumeOf(store, session, p.id));
     expect(store.disconnect(session, p.id, oldToken)).toBe(false);
     expect(p.state).toBe("connected");
   });
 
+  it("a wrong or missing resume token gets a new participant and leaves the old one alone", () => {
+    const { store, session } = setup();
+    const id = toStandby(store, session);
+    const p = store.getParticipant(session, id);
+    const token = p.connectionToken;
+
+    for (const resumeToken of [undefined, "", "wrong", p.resumeToken + "x"]) {
+      const { participant, resumed } = store.join(session, {
+        participantId: id,
+        resumeToken,
+      });
+      expect(resumed).toBe(false);
+      expect(participant.id).not.toBe(id);
+      expect(participant.resumeToken).not.toBe(p.resumeToken);
+    }
+    expect(p.state).toBe("standby");
+    expect(p.connectionToken).toBe(token);
+    expect(session.participants.size).toBe(5);
+  });
+
+  it("ids are random UUIDs and resume tokens are 16 random bytes", () => {
+    const { store, session } = setup();
+    const a = store.join(session).participant;
+    const b = store.join(session).participant;
+    const uuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+    expect(a.id).toMatch(uuid);
+    expect(b.id).toMatch(uuid);
+    expect(a.id).not.toBe(b.id);
+    expect(a.resumeToken).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(a.resumeToken).not.toBe(b.resumeToken);
+    expect(store.summaries(session)[0]).not.toHaveProperty("resumeToken");
+  });
+
   it("an unknown participant id gets a new participant", () => {
     const { store, session } = setup();
-    const { participant, resumed } = store.join(session, "gone");
+    const { participant, resumed } = store.join(session, {
+      participantId: "gone",
+      resumeToken: "x",
+    });
     expect(resumed).toBe(false);
     expect(participant.id).not.toBe("gone");
   });
@@ -291,7 +337,7 @@ describe("removal after 60 s", () => {
     const { participant: p } = store.join(session);
     store.disconnect(session, p.id, p.connectionToken);
     advance(30_000);
-    store.join(session, p.id);
+    store.join(session, resumeOf(store, session, p.id));
     advance(DISCONNECT_REMOVAL_MS);
     expect(store.removeExpired()).toEqual([]);
     expect(p.state).toBe("connected");
@@ -300,10 +346,11 @@ describe("removal after 60 s", () => {
   it("a rejoin after removal gets a new participant", () => {
     const { store, session, advance } = setup();
     const { participant: p } = store.join(session);
+    const resume = resumeOf(store, session, p.id);
     store.disconnect(session, p.id, p.connectionToken);
     advance(DISCONNECT_REMOVAL_MS);
     store.removeExpired();
-    expect(store.join(session, p.id).resumed).toBe(false);
+    expect(store.join(session, resume).resumed).toBe(false);
   });
 });
 

@@ -26,6 +26,7 @@ describe("parseClientMessage", () => {
     const messages: ClientMessage[] = [
       { type: "join", code: "ABCDEF" },
       { type: "join", code: "ABCDEF", participantId: "p1" },
+      { type: "join", code: "ABCDEF", participantId: "p1", resumeToken: "t" },
       { type: "seat", x: 0, y: 1 },
       { type: "ready" },
       { type: "sync", c0: 123.456 },
@@ -76,12 +77,14 @@ describe("parseServerMessage", () => {
       {
         type: "welcome",
         participantId: "p1",
+        resumeToken: "tok",
         venue: TEST_VENUE,
         state: { participant: "connected", seat: null, T0: null },
       },
       {
         type: "welcome",
         participantId: "p1",
+        resumeToken: "tok",
         venue: TEST_VENUE,
         state: { participant: "playing", seat: { x: 0.2, y: 0.3 }, T0: 99 },
       },

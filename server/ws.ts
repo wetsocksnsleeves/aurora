@@ -376,10 +376,10 @@ export class WsRouter {
       throw new SessionError("bad-message", "this socket already joined");
     }
     const session = this.store.requireSession(msg.code);
-    const { participant, resumed } = this.store.join(
-      session,
-      msg.participantId,
-    );
+    const { participant, resumed } = this.store.join(session, {
+      participantId: msg.participantId,
+      resumeToken: msg.resumeToken,
+    });
     conn.role = {
       kind: "participant",
       session,
@@ -388,6 +388,7 @@ export class WsRouter {
     };
 
     // A rejoin can arrive before the server noticed the old socket died.
+    // Only a verified resume (id + resumeToken) gets here with an existing id.
     const previous = this.participantSockets.get(participant.id);
     this.participantSockets.set(participant.id, conn);
     if (previous && previous !== conn) previous.ws.close(4000, "replaced");
@@ -395,6 +396,7 @@ export class WsRouter {
     this.send(conn, {
       type: "welcome",
       participantId: participant.id,
+      resumeToken: participant.resumeToken,
       venue: session.show.venue,
       state: {
         participant: participant.state,

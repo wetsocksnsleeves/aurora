@@ -1,4 +1,9 @@
-import { randomInt, randomUUID } from "node:crypto";
+import {
+  randomBytes,
+  randomInt,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
 import type { ErrorReason, ParticipantSummary } from "@/lib/protocol";
 import type { ParticipantState, Point, Schedule, Show } from "@/lib/types";
 
@@ -29,7 +34,13 @@ export type ClockStatus = {
 };
 
 export type Participant = {
+  /** Random UUID. Shown to the host, so it is not a secret. */
   id: string;
+  /**
+   * Secret the participant must present with `id` to resume after a
+   * reconnect. Only ever sent in that participant's `welcome`.
+   */
+  resumeToken: string;
   /** Derived. Do not set directly; call a store method. */
   state: ParticipantState;
   seat: Point | null;
@@ -77,8 +88,10 @@ export type SessionStoreOptions = {
   now?: () => number;
   /** Random integer in [0, max). Defaults to `crypto.randomInt`. */
   randomInt?: (max: number) => number;
-  /** Id generator. Defaults to `crypto.randomUUID`. */
+  /** Participant id generator. Defaults to `crypto.randomUUID`. */
   newId?: () => string;
+  /** Resume token generator. Defaults to 16 random bytes as base64url. */
+  newResumeToken?: () => string;
   /**
    * Standby also requires a ready clock (SPEC 4.4). False until the clock
    * handshake lands in chunk 4, so standby means "schedule sent" for now.
@@ -109,6 +122,22 @@ export function deriveState(
   return showRunning ? "playing" : "standby";
 }
 
+/** 16 random bytes as base64url. */
+export function newResumeToken(): string {
+  return randomBytes(16).toString("base64url");
+}
+
+/** Constant-time comparison of a stored token with a client-supplied one. */
+export function tokensMatch(
+  expected: string,
+  given: string | undefined,
+): boolean {
+  if (typeof given !== "string") return false;
+  const a = Buffer.from(expected, "utf8");
+  const b = Buffer.from(given, "utf8");
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 /** A random join code, e.g. "K7QF2M". */
 export function generateJoinCode(
   random: (max: number) => number = randomInt,
@@ -130,12 +159,14 @@ export class SessionStore {
   private readonly now: () => number;
   private readonly randomInt: (max: number) => number;
   private readonly newId: () => string;
+  private readonly newResumeToken: () => string;
   readonly requireClockSync: boolean;
 
   constructor(options: SessionStoreOptions = {}) {
     this.now = options.now ?? Date.now;
     this.randomInt = options.randomInt ?? randomInt;
     this.newId = options.newId ?? randomUUID;
+    this.newResumeToken = options.newResumeToken ?? newResumeToken;
     this.requireClockSync = options.requireClockSync ?? false;
   }
 
@@ -182,18 +213,25 @@ export class SessionStore {
   // -- Participants ---------------------------------------------------------
 
   /**
-   * A participant joins, or rejoins with the id from a previous `welcome`.
-   * Rejoining keeps the seat, ready state and schedule. The clock must sync
-   * again on the new connection. An unknown id (for example removed after
-   * 60 s) gets a new participant.
+   * A participant joins, or rejoins with the `participantId` and
+   * `resumeToken` from a previous `welcome`. Rejoining keeps the seat, ready
+   * state and schedule; the clock must sync again on the new connection.
+   *
+   * Resuming needs both the id and its token. A missing or wrong token, or an
+   * unknown id (for example removed after 60 s), gets a new participant and
+   * never touches the existing one.
    */
   join(
     session: Session,
-    participantId?: string,
+    resume?: { participantId?: string; resumeToken?: string },
   ): { participant: Participant; resumed: boolean } {
-    const existing = participantId
-      ? session.participants.get(participantId)
+    const candidate = resume?.participantId
+      ? session.participants.get(resume.participantId)
       : undefined;
+    const existing =
+      candidate && tokensMatch(candidate.resumeToken, resume?.resumeToken)
+        ? candidate
+        : undefined;
     if (existing) {
       existing.connected = true;
       existing.connectionToken += 1;
@@ -205,6 +243,7 @@ export class SessionStore {
 
     const participant: Participant = {
       id: this.newId(),
+      resumeToken: this.newResumeToken(),
       state: "connected",
       seat: null,
       readyTapped: false,

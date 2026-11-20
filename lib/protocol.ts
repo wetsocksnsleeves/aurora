@@ -20,14 +20,17 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * Participant joins a session on page load. `participantId` is the id from a
- * previous `welcome`, sent on reconnect so the server keeps the same
- * participant (seat, ready state, schedule).
+ * Participant joins a session on page load. On reconnect the client sends the
+ * `participantId` and `resumeToken` from its last `welcome` (kept in
+ * sessionStorage) so the server keeps the same participant (seat, ready
+ * state, schedule). Both must match; otherwise the server creates a new
+ * participant.
  */
 export type JoinMessage = {
   type: "join";
   code: string;
   participantId?: string;
+  resumeToken?: string;
 };
 
 /** Participant tapped the venue. Normalised 0..1. */
@@ -80,6 +83,11 @@ export type WelcomeState = {
 export type WelcomeMessage = {
   type: "welcome";
   participantId: string;
+  /**
+   * Secret that proves this client owns `participantId` on rejoin. Sent only
+   * to that participant, never to the host.
+   */
+  resumeToken: string;
   venue: Venue;
   state: WelcomeState;
 };
@@ -234,6 +242,9 @@ function toClientMessage(v: Rec): ClientMessage {
       if (v.participantId !== undefined && v.participantId !== null) {
         msg.participantId = str(v, "participantId", MAX_ID_LENGTH);
       }
+      if (v.resumeToken !== undefined && v.resumeToken !== null) {
+        msg.resumeToken = str(v, "resumeToken", MAX_ID_LENGTH);
+      }
       return msg;
     }
     case "seat":
@@ -268,6 +279,7 @@ function toServerMessage(v: Rec): ServerMessage {
       return {
         type: "welcome",
         participantId: str(v, "participantId"),
+        resumeToken: str(v, "resumeToken"),
         venue: venue(v.venue),
         state: {
           participant: participantState(state, "participant"),
