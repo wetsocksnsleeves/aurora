@@ -11,13 +11,13 @@ host:
 - [ ] auto build lightshows by analysing audio waveform
 - [ ] import/export
 - [ ] UI refinement, complete redesign
-- [ ] better venue drawing
+- [ ] better venue drawing (etao)
   - Import an image as background
   - Single pen tool for drawing, remove redundant shapes
   - Consider minimising the drawing tools, making light shows easier to create
 
 client:
-
+- [x] auto positioning
 - [ ] brightness enforcement
 - [ ] fullscreen enforcement? might not be possible
-- [ ] better UI / call to actions
+- [x] better UI / call to actions (etao)
