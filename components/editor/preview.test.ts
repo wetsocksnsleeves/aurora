@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { compileSchedule, pointInPolygon } from "@/lib/compile";
+import { SAMPLE_MS, compileSchedule, pointInPolygon } from "@/lib/compile";
+import { liveDotColor } from "@/lib/host-map";
 import type { Clip, Point, Schedule, Show } from "@/lib/types";
 import { previewColors, previewDots, sampleTimeAt } from "./preview";
 import { editorReducer, initialEditorState } from "./store";
@@ -144,6 +145,22 @@ describe("preview colours", () => {
           colorFromSchedule(schedules[i], t),
         );
       });
+    }
+  });
+
+  it("match the host map's playing colours at every sample", () => {
+    const dots = previewDots(show.venue, 12);
+    const participants = dots.map((d, i) => ({
+      id: `p${i}`,
+      x: d.x,
+      y: d.y,
+      state: "playing" as const,
+      rttMs: 20,
+      degraded: false,
+    }));
+    for (let t = 0; t < 10_000; t += SAMPLE_MS * 7) {
+      const hostColor = liveDotColor(show, t);
+      expect(previewColors(show, dots, t)).toEqual(participants.map(hostColor));
     }
   });
 
