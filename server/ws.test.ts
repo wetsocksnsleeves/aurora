@@ -181,12 +181,34 @@ describe("message routing", () => {
     const previous = process.env.PUBLIC_URL;
     delete process.env.PUBLIC_URL;
     try {
-      const { url, port } = await listen({ publicUrl: undefined });
+      const { url, port } = await listen({
+        publicUrl: undefined,
+        lanAddresses: () => [],
+      });
       const host = await connect(url);
       host.send({ type: "host", showId: "test" });
       const session = await host.next("session");
       expect(session.joinUrl).toBe(
         `http://127.0.0.1:${port}/j/${session.code}`,
+      );
+    } finally {
+      if (previous !== undefined) process.env.PUBLIC_URL = previous;
+    }
+  });
+
+  it("uses a LAN address for join links when the host is on localhost", async () => {
+    const previous = process.env.PUBLIC_URL;
+    delete process.env.PUBLIC_URL;
+    try {
+      const { url, port } = await listen({
+        publicUrl: undefined,
+        lanAddresses: () => ["192.168.0.200"],
+      });
+      const host = await connect(url);
+      host.send({ type: "host", showId: "test" });
+      const session = await host.next("session");
+      expect(session.joinUrl).toBe(
+        `http://192.168.0.200:${port}/j/${session.code}`,
       );
     } finally {
       if (previous !== undefined) process.env.PUBLIC_URL = previous;
