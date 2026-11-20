@@ -19,7 +19,7 @@ The order puts the risky part first: sync is built and measured before the edito
 | 8 | Schedule compiler: fill, polygons, layers | 3. Schedule compiler | 1 | [x] |
 | 9 | Schedule compiler: moving shapes and fades | 3. Schedule compiler | 8 | [x] |
 | 10 | Show storage and API | 5. Save and host | 0 | [x] |
-| 11 | Editor: venue drawing | 4. Editor | 10 | [ ] |
+| 11 | Editor: venue drawing | 4. Editor | 10 | [x] |
 | 12 | Editor: audio import and timeline | 4. Editor | 10 | [ ] |
 | 13 | Editor: clip tools | 4. Editor | 9, 11, 12 | [ ] |
 | 14 | Editor: preview | 4. Editor | 13 | [ ] |
