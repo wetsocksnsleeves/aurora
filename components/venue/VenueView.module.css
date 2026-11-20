@@ -1,0 +1,41 @@
+.root {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.interactive {
+  cursor: crosshair;
+  touch-action: manipulation;
+}
+
+.shape {
+  fill: rgb(255 255 255 / 0.07);
+  stroke: rgb(255 255 255 / 0.55);
+  stroke-linejoin: round;
+}
+
+.dot {
+  stroke: rgb(0 0 0 / 0.6);
+}
+
+.warning {
+  fill: #f59e0b;
+  stroke: #000;
+}
+
+.seatRing {
+  fill: none;
+  stroke: var(--accent, #6ee7b7);
+  opacity: 0.6;
+}
+
+.seat {
+  fill: var(--accent, #6ee7b7);
+  stroke: #fff;
+}
