@@ -15,7 +15,7 @@ The order puts the risky part first: sync is built and measured before the edito
 | 4 | `ClockSync` and the handshake | 2. Sync | 2 | [x] |
 | 5 | Start, stop, and rAF playback | 2. Sync | 3, 4 | [x] |
 | 6 | Simulated-client harness | 2. Sync | 5 | [x] |
-| 7 | Playwright browser sync test | 2. Sync | 5 | dropped |
+| 7 | Playwright browser sync test | 2. Sync | 5 | [x] |
 | 8 | Schedule compiler: fill, polygons, layers | 3. Schedule compiler | 1 | [x] |
 | 9 | Schedule compiler: moving shapes and fades | 3. Schedule compiler | 8 | [x] |
 | 10 | Show storage and API | 5. Save and host | 0 | [x] |
@@ -130,7 +130,7 @@ Done when: `npx tsx scripts/sim.ts --clients 500` passes with default faults, an
 
 ### Chunk 7. Playwright browser sync test
 
-Status: dropped. The user dropped this chunk on 2026-11-21 because the 500-client simulated harness (chunk 6, #24) covers sync at scale.
+Status: done. Runs locally with `npm run test:e2e` (about 30 s). It is not in CI: the job took about 8 minutes per PR, and the 500-client simulated harness (chunk 6, #24) covers sync at scale in CI.
 
 Build: 3 to 5 browser contexts with mobile emulation run `/j/[code]` end to end. Each records the wall-clock time of every colour change. The test asserts a p95 spread under 50 ms (6.3).
 
