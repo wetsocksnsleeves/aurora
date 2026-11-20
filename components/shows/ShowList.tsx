@@ -188,14 +188,14 @@ export function ShowList() {
       <h3 className={styles.subheading}>Built-in test shows</h3>
       <table className={styles.table}>
         <tbody>
-          {BUILTIN_SHOWS.map((show) => (
+          {BUILTIN_SHOWS.map(({ show, note }) => (
             <tr key={show.id} data-show-id={show.id}>
               <td className={styles.name}>
                 {show.name}
                 <span className={styles.tag}>read-only</span>
               </td>
               <td className={styles.num}>{clockText(showDurationMs(show))}</td>
-              <td className={styles.muted}>No audio, for sync testing</td>
+              <td className={styles.muted}>{note}</td>
               <td className={styles.actions}>
                 <button
                   type="button"

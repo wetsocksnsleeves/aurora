@@ -11,6 +11,8 @@ import {
   type RefObject,
 } from "react";
 import { VenueView } from "@/components/venue/VenueView";
+import { clickTimesForShow } from "@/lib/audio-schedule";
+import { clickTrackByDefault } from "@/lib/builtin-shows";
 import { showDurationMs } from "@/lib/compile";
 import {
   STATE_COLORS,
@@ -82,7 +84,14 @@ export function HostApp({ code }: { code: string }) {
     T0,
   );
   const qr = useQrSvg(session?.joinUrl ?? null);
-  const audio = useHostAudio(client, show, T0, clockReady);
+  // Click track (chunk 16): null until the host toggles it, then their choice.
+  const [clickChoice, setClickChoice] = useState<boolean | null>(null);
+  const clickOn = clickChoice ?? clickTrackByDefault(session?.showId ?? "");
+  const clickTimesMs = useMemo(
+    () => (clickOn && show ? clickTimesForShow(show) : null),
+    [clickOn, show],
+  );
+  const audio = useHostAudio(client, show, T0, clockReady, clickTimesMs);
 
   if (fatal) {
     return (
@@ -172,7 +181,20 @@ export function HostApp({ code }: { code: string }) {
           ) : null}
         </div>
 
-        <AudioPanel controls={audio} />
+        <AudioPanel controls={audio}>
+          <label className={styles.toggle}>
+            <input
+              type="checkbox"
+              checked={clickOn}
+              onChange={(e) => setClickChoice(e.target.checked)}
+            />
+            Click track: a beep at each clip start
+          </label>
+          <p className={styles.audioHint}>
+            Scheduled like the track. Move the offset until the beeps land on
+            the flashes, by ear and on camera.
+          </p>
+        </AudioPanel>
 
         <ul className={styles.counts}>
           {PARTICIPANT_STATES.map((state) => (
