@@ -15,6 +15,7 @@ import type { Point, Show } from "@/lib/types";
 import {
   SessionError,
   getSessionStore,
+  tokensMatch,
   type Participant,
   type Session,
   type SessionStore,
@@ -436,14 +437,20 @@ export class WsRouter {
       throw new SessionError("bad-message", "this socket already joined");
     }
     let session: Session;
+    let created = false;
     if ("showId" in msg) {
       const show = await this.resolveShow(msg.showId);
       if (!show) {
         throw new SessionError("unknown-show", `no show "${msg.showId}"`);
       }
       session = this.store.createSession(show);
+      created = true;
     } else {
       session = this.store.requireSession(msg.code);
+      // The join code is public (QR code), so re-attaching needs the token.
+      if (!tokensMatch(session.hostToken, msg.hostToken)) {
+        throw new SessionError("not-host", "wrong or missing host token");
+      }
     }
     conn.role = { kind: "host", session };
     let set = this.hosts.get(session.code);
@@ -465,6 +472,8 @@ export class WsRouter {
       showId: session.showId,
       venue: session.show.venue,
       T0: session.T0,
+      // Only the creating host learns the token; re-attaching hosts have it.
+      ...(created ? { hostToken: session.hostToken } : {}),
     });
     this.send(conn, {
       type: "participants",

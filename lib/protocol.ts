@@ -44,10 +44,13 @@ export type SyncRequest = { type: "sync"; c0: number };
 
 /**
  * Host creates a session for a show (`showId`), or re-attaches to an existing
- * session (`code`), for example when the host page reloads.
+ * session (`code`), for example when the host page reloads. Re-attaching
+ * needs the `hostToken` from the `session` reply that created the session;
+ * without the right one the server answers `error: not-host`.
  */
 export type HostMessage =
-  { type: "host"; showId: string } | { type: "host"; code: string };
+  | { type: "host"; showId: string }
+  | { type: "host"; code: string; hostToken?: string };
 
 /** Host clicked Start. */
 export type StartRequest = { type: "start" };
@@ -109,7 +112,9 @@ export type StopMessage = { type: "stop" };
 
 /**
  * Sent to the host after `host`. `venue` and `T0` are extras beyond SPEC 5.2
- * so a reloaded host page can redraw the map and resume.
+ * so a reloaded host page can redraw the map and resume. `hostToken` is set
+ * only in the reply to the `host { showId }` that created the session; keep
+ * it (sessionStorage) to re-attach.
  */
 export type SessionMessage = {
   type: "session";
@@ -118,6 +123,7 @@ export type SessionMessage = {
   showId: string;
   venue: Venue;
   T0: number | null;
+  hostToken?: string;
 };
 
 /** One dot on the host map. `x` and `y` are null until a seat is chosen. */
@@ -259,9 +265,14 @@ function toClientMessage(v: Rec): ClientMessage {
       if (hasShow === hasCode) {
         throw new InvalidMessage("host needs exactly one of `showId`, `code`");
       }
-      return hasShow
-        ? { type: "host", showId: str(v, "showId", MAX_ID_LENGTH) }
-        : { type: "host", code: str(v, "code", 16) };
+      if (hasShow) {
+        return { type: "host", showId: str(v, "showId", MAX_ID_LENGTH) };
+      }
+      const msg: HostMessage = { type: "host", code: str(v, "code", 16) };
+      if (v.hostToken !== undefined && v.hostToken !== null) {
+        msg.hostToken = str(v, "hostToken", MAX_ID_LENGTH);
+      }
+      return msg;
     }
     case "start":
       return { type: "start" };
@@ -300,8 +311,8 @@ function toServerMessage(v: Rec): ServerMessage {
       return { type: "start", T0: num(v, "T0") };
     case "stop":
       return { type: "stop" };
-    case "session":
-      return {
+    case "session": {
+      const msg: SessionMessage = {
         type: "session",
         code: str(v, "code"),
         joinUrl: str(v, "joinUrl"),
@@ -309,6 +320,11 @@ function toServerMessage(v: Rec): ServerMessage {
         venue: venue(v.venue),
         T0: nullableNum(v, "T0"),
       };
+      if (v.hostToken !== undefined && v.hostToken !== null) {
+        msg.hostToken = str(v, "hostToken");
+      }
+      return msg;
+    }
     case "participants":
       return {
         type: "participants",
