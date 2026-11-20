@@ -1,5 +1,9 @@
+import { writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { devices, expect, test, type Page } from "@playwright/test";
 import { WebSocket } from "ws";
+import { renderView } from "../lib/positioning/synthetic";
 import {
   spawnServer,
   type SpawnedServer,
@@ -8,8 +12,8 @@ import {
 /**
  * Browser sync test (SPEC 6.3, DEVELOPMENT.md chunk 7), after the reference
  * repo's `test/sync_harness.mjs`: several phone-sized browser contexts run
- * the real participant page, join one session, pick the same seat, tap
- * Ready and play the test wave. Each page records the wall-clock time of
+ * the real participant page, join one session, find the same seat with the
+ * camera, tap Ready and play the test wave. Each page records the wall-clock time of
  * every colour change of the playback fill; the test asserts that the
  * phones change colour together, p95 spread under 50 ms.
  *
@@ -22,8 +26,39 @@ const PHONES = 4;
 /** Colour changes per phone to compare: 2 per 2 s wave, 5 waves. */
 const CHANGES = 10;
 const MAX_P95_SPREAD_MS = 50;
-/** Where every phone taps, relative to the map: inside the left block. */
-const SEAT_TAP = { x: 0.25, y: 0.55 };
+/**
+ * Every phone's camera is a fake device playing one rendered view of the
+ * big-screen target, from 4 m left of centre and 11 m back (SPEC 2.4), so
+ * every phone finds the same seat and gets the same schedule.
+ */
+const FAKE_CAMERA = (() => {
+  const { gray, w, h } = renderView({
+    width: 3, // the session's default target width
+    pos: { x: -4, y: -1, z: 11 },
+  });
+  const chroma = Buffer.alloc((w / 2) * (h / 2), 128);
+  const frame = Buffer.concat([Buffer.from("FRAME\n"), gray, chroma, chroma]);
+  const file = join(tmpdir(), `lightshow-fake-camera-${process.pid}.y4m`);
+  writeFileSync(
+    file,
+    Buffer.concat([
+      Buffer.from(`YUV4MPEG2 W${w} H${h} F30:1 Ip A1:1 C420jpeg\n`),
+      frame,
+      frame,
+    ]),
+  );
+  return file;
+})();
+
+test.use({
+  launchOptions: {
+    args: [
+      "--use-fake-ui-for-media-stream",
+      "--use-fake-device-for-media-stream",
+      `--use-file-for-fake-video-capture=${FAKE_CAMERA}`,
+    ],
+  },
+});
 
 type Change = { t: number; color: string };
 
@@ -48,26 +83,24 @@ test("phones change colour within 50 ms of each other", async ({ browser }) => {
   try {
     const phones: Page[] = [];
     for (let i = 0; i < PHONES; i++) {
-      // One device profile for all, so every phone taps the exact same seat
-      // and gets the same schedule.
-      const context = await browser.newContext({ ...devices["Pixel 7"] });
+      // One device profile for all, so every phone sees the same frames.
+      const context = await browser.newContext({
+        ...devices["Pixel 7"],
+        permissions: ["camera"],
+      });
       const page = await context.newPage();
       await page.addInitScript(recordColorChanges);
       phones.push(page);
     }
 
-    // Join, pick a seat, tap Ready.
+    // Join, find the seat with the camera, tap Ready.
     await Promise.all(
       phones.map(async (page) => {
         await page.goto(`${server.httpUrl}/j/${host.code}`);
-        const map = page.getByRole("button", { name: /seating map/i });
-        const box = await map.boundingBox();
-        if (!box) throw new Error("seat map has no box");
-        await page.mouse.click(
-          box.x + box.width * SEAT_TAP.x,
-          box.y + box.height * SEAT_TAP.y,
-        );
-        await page.getByRole("button", { name: "Ready" }).click();
+        await page.getByRole("button", { name: "Find my seat" }).click();
+        await page
+          .getByRole("button", { name: "Ready" })
+          .click({ timeout: 30_000 });
         await expect(page.locator('[data-screen="standby"]')).toBeVisible({
           timeout: 30_000,
         });

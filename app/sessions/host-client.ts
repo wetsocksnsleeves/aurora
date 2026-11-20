@@ -14,6 +14,7 @@ import {
   type SessionMessage,
 } from "@/lib/protocol";
 import { ClockSync, type ClockSyncEnv } from "@/lib/clock-sync";
+import type { PositioningConfig } from "@/lib/types";
 import { wsUrlFor } from "@/lib/ws-url";
 import { browserClockEnv } from "../browser-clock";
 
@@ -187,6 +188,12 @@ export class HostClient {
     return this.send({ type: "stop" });
   }
 
+  /** Set the real-world sizes phones use to find their seat with the camera. */
+  setPositioning(config: PositioningConfig): boolean {
+    this.update({ lastError: null });
+    return this.send({ type: "positioning", config });
+  }
+
   /** Call on `visibilitychange`: a returning tab resyncs its clock. */
   setVisible(visible: boolean): void {
     if (visible && this.running) this.clock.onVisible();
@@ -272,6 +279,13 @@ export class HostClient {
       case "stop":
         this.update({ T0: null });
         return;
+      case "positioning": {
+        const session = this.snapshot.session;
+        if (session) {
+          this.update({ session: { ...session, positioning: message.config } });
+        }
+        return;
+      }
       case "error":
         if (
           message.reason === "not-host" ||

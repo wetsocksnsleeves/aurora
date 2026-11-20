@@ -288,3 +288,27 @@
   gap: 0.5rem;
   font-size: 0.9rem;
 }
+
+.screenLink {
+  align-self: flex-start;
+  color: var(--accent);
+  font-size: 0.9rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.field input {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid rgb(255 255 255 / 0.2);
+  border-radius: 0.5rem;
+  background: #000;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.95rem;
+}

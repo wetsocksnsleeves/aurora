@@ -5,7 +5,14 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import type { ErrorReason, ParticipantSummary } from "@/lib/protocol";
-import type { ParticipantState, Point, Schedule, Show } from "@/lib/types";
+import { DEFAULT_POSITIONING } from "@/lib/positioning/seat";
+import type {
+  ParticipantState,
+  Point,
+  PositioningConfig,
+  Schedule,
+  Show,
+} from "@/lib/types";
 
 /**
  * In-memory session store (SPEC 2.2, 5.3). Holds no sockets, so it can be
@@ -76,6 +83,8 @@ export type Session = {
   hostToken: string;
   /** Server-clock start time while a show runs, else null (SPEC 4.6). */
   T0: number | null;
+  /** Sizes for finding seats with the camera (SPEC 2.4), set by the host. */
+  positioning: PositioningConfig;
   participants: Map<string, Participant>;
 };
 
@@ -195,6 +204,7 @@ export class SessionStore {
       createdAt: this.now(),
       hostToken: newHostToken(),
       T0: null,
+      positioning: { ...DEFAULT_POSITIONING },
       participants: new Map(),
     };
     this.sessions.set(code, session);
@@ -374,6 +384,11 @@ export class SessionStore {
   }
 
   // -- Show -----------------------------------------------------------------
+
+  /** The host set the sizes used to find seats with the camera. */
+  setPositioning(session: Session, config: PositioningConfig): void {
+    session.positioning = { ...config };
+  }
 
   /** Show starts at `T0` (server clock). Standby participants become playing. */
   startShow(session: Session, T0: number): void {

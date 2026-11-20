@@ -7,6 +7,7 @@ import {
 import type {
   ParticipantState,
   Point,
+  PositioningConfig,
   ScheduleEvent,
   Venue,
 } from "@/lib/types";
@@ -100,6 +101,8 @@ export type ParticipantSnapshot = {
   schedule: ParticipantSchedule | null;
   /** Server-clock start time while a show runs (SPEC 4.6), else null. */
   T0: number | null;
+  /** Sizes for finding the seat with the camera (SPEC 2.4), from the host. */
+  positioning: PositioningConfig | null;
   /** `ClockSync` passed its ready gate (SPEC 4.4). Dark until then. */
   clockReady: boolean;
   /** Ready only through the 6 s fallback. */
@@ -203,6 +206,7 @@ export class ParticipantClient {
       readyTapped: false,
       schedule: null,
       T0: null,
+      positioning: null,
       clockReady: false,
       clockDegraded: false,
       fatal: null,
@@ -423,6 +427,9 @@ export class ParticipantClient {
         // Back to standby, ready for another start.
         this.update({ T0: null });
         return;
+      case "positioning":
+        this.update({ positioning: message.config });
+        return;
       case "error":
         if (message.reason === "unknown-session") {
           this.fail("unknown-session");
@@ -460,6 +467,7 @@ export class ParticipantClient {
       // The server resends the schedule to a resumed, ready participant.
       schedule: sameParticipant ? prev.schedule : null,
       T0: message.state.T0,
+      positioning: message.positioning,
       lastError: null,
     });
 

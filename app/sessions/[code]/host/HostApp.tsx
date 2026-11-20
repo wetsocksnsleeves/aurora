@@ -22,8 +22,12 @@ import {
   participantDots,
   showStatus,
 } from "@/lib/host-map";
-import type { ParticipantSummary } from "@/lib/protocol";
-import { PARTICIPANT_STATES, type Show } from "@/lib/types";
+import type { ParticipantSummary, SessionMessage } from "@/lib/protocol";
+import {
+  PARTICIPANT_STATES,
+  type PositioningConfig,
+  type Show,
+} from "@/lib/types";
 import { HostClient, browserHostDeps } from "../../host-client";
 import { AudioPanel, useHostAudio } from "./AudioPanel";
 import styles from "./host.module.css";
@@ -181,6 +185,10 @@ export function HostApp({ code }: { code: string }) {
           ) : null}
         </div>
 
+        {session ? (
+          <PositioningPanel client={client} code={code} session={session} />
+        ) : null}
+
         <AudioPanel controls={audio}>
           <label className={styles.toggle}>
             <input
@@ -274,6 +282,68 @@ function useLiveColors(
     raf = requestAnimationFrame(render);
     return () => cancelAnimationFrame(raf);
   }, [mapRef, statusRef, client, participants, show, T0]);
+}
+
+const POSITIONING_FIELDS: [keyof PositioningConfig, string][] = [
+  ["targetWidthM", "Target width: left to right corner square centres"],
+  ["venueWidthM", "Venue width"],
+  ["venueDepthM", "Venue depth, back from the screen"],
+];
+
+/**
+ * Finding seats with the camera (SPEC 2.4): a link to the big-screen target
+ * and the real sizes phones need to turn what they see into a seat. Each
+ * field sends on blur; the server echoes the new sizes to every phone.
+ */
+function PositioningPanel({
+  client,
+  code,
+  session,
+}: {
+  client: HostClient;
+  code: string;
+  session: SessionMessage;
+}) {
+  const config = session.positioning;
+  const screenHref = `/sessions/${code}/screen?join=${encodeURIComponent(session.joinUrl)}`;
+  return (
+    <section className={styles.audio} aria-label="Camera seats">
+      <h2 className={styles.audioTitle}>Camera seats</h2>
+      <p className={styles.audioHint}>
+        Show the big screen on the projector. Phones point at it to find their
+        seat. The top edge of the venue map is the screen.
+      </p>
+      <a
+        className={styles.screenLink}
+        href={screenHref}
+        target="_blank"
+        rel="noreferrer"
+      >
+        Open the big screen
+      </a>
+      {POSITIONING_FIELDS.map(([key, label]) => (
+        <label key={key} className={styles.field}>
+          <span>{label} (m)</span>
+          <input
+            // Remount when the server's value changes, so it shows through.
+            key={config[key]}
+            type="number"
+            inputMode="decimal"
+            min={0.1}
+            max={1000}
+            step={0.1}
+            defaultValue={config[key]}
+            onBlur={(e) => {
+              const value = Number(e.target.value);
+              if (value > 0 && value <= 1000 && value !== config[key]) {
+                client.setPositioning({ ...config, [key]: value });
+              }
+            }}
+          />
+        </label>
+      ))}
+    </section>
+  );
 }
 
 /** The QR code for `text` as an SVG data URL, or null while rendering. */

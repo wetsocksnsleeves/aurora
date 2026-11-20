@@ -42,6 +42,19 @@ export type Show = {
   updatedAt: string;
 };
 
+/**
+ * Real-world sizes for finding seats with the phone camera, set by the host
+ * per session. The big screen shows a target whose left and right anchor
+ * centres are `targetWidthM` apart; the venue drawing's 0..1 box spans
+ * `venueWidthM` across and `venueDepthM` back from the screen, which is
+ * centred on the drawing's top edge (the stage).
+ */
+export type PositioningConfig = {
+  targetWidthM: number;
+  venueWidthM: number;
+  venueDepthM: number;
+};
+
 /** One colour change. `tMs` is show time (ms after `T0`). */
 export type ScheduleEvent = { tMs: number; color: string };
 

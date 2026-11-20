@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import type { WebSocketServer } from "ws";
 import { compileSchedule } from "@/lib/compile";
+import { DEFAULT_POSITIONING } from "@/lib/positioning/seat";
 import { TEST_SHOW, TEST_SHOW_DURATION_MS } from "@/lib/test-show";
 import type { Show } from "@/lib/types";
 import { closeCompilePool, compileInWorker } from "./compile-pool";
@@ -168,7 +169,7 @@ describe("message routing", () => {
     expect(session.code).toMatch(/^[A-HJ-NP-Z2-9]{6}$/);
     expect(session.joinUrl).toBe(`https://aurora.example/j/${session.code}`);
     expect(session.showId).toBe("test");
-    expect(session.venue.shapes).toHaveLength(2);
+    expect(session.venue.shapes).toHaveLength(1);
     expect(session.T0).toBeNull();
     expect(await host.next("participants")).toEqual({
       type: "participants",
@@ -290,7 +291,7 @@ describe("message routing", () => {
       seat: null,
       T0: null,
     });
-    expect(welcome.venue.shapes).toHaveLength(2);
+    expect(welcome.venue.shapes).toHaveLength(1);
     const id = welcome.participantId;
     await expect(host.next("participants")).resolves.toMatchObject({
       list: [{ id, state: "connected", x: null, y: null }],
@@ -769,5 +770,42 @@ describe("clock sync", () => {
     const { host } = await hostSession(url);
     host.send(CLOCK_READY);
     expect((await host.next("error")).reason).toBe("not-joined");
+  });
+});
+
+describe("positioning", () => {
+  it("host sets the sizes; phones get them now and in welcome", async () => {
+    const { url } = await listen();
+    const { host, code } = await hostSession(url);
+    expect(host.all("session")[0]!.positioning).toEqual(DEFAULT_POSITIONING);
+
+    const phone = await connect(url);
+    phone.send({ type: "join", code });
+    expect((await phone.next("welcome")).positioning).toEqual(
+      DEFAULT_POSITIONING,
+    );
+
+    const config = { targetWidthM: 4.5, venueWidthM: 32, venueDepthM: 28 };
+    host.send({ type: "positioning", config });
+    expect((await phone.next("positioning")).config).toEqual(config);
+    expect((await host.next("positioning")).config).toEqual(config);
+
+    const late = await connect(url);
+    late.send({ type: "join", code });
+    expect((await late.next("welcome")).positioning).toEqual(config);
+  });
+
+  it("refuses positioning from a participant", async () => {
+    const { url, store } = await listen();
+    const { code } = await hostSession(url);
+    const phone = await connect(url);
+    phone.send({ type: "join", code });
+    await phone.next("welcome");
+    phone.send({
+      type: "positioning",
+      config: { targetWidthM: 1, venueWidthM: 1, venueDepthM: 1 },
+    });
+    expect((await phone.next("error")).reason).toBe("not-host");
+    expect(store.getSession(code)!.positioning).toEqual(DEFAULT_POSITIONING);
   });
 });

@@ -10,7 +10,7 @@ import {
 } from "react";
 import { VenueView } from "@/components/venue/VenueView";
 import type { Point } from "@/lib/types";
-import { pickSeat } from "@/lib/venue-geometry";
+import { cameraSupported, requestMotionPermission } from "./camera-seat";
 import { enterFullscreen, requestWakeLock, wakeLockSupported } from "./device";
 import {
   ParticipantClient,
@@ -19,6 +19,7 @@ import {
   type ParticipantSnapshot,
 } from "./participant-client";
 import { Playback } from "./Playback";
+import { SeatScanner } from "./SeatScanner";
 import styles from "./participant.module.css";
 
 /**
@@ -33,7 +34,10 @@ export function ParticipantApp({ code }: { code: string }) {
     client.getSnapshot,
   );
   const [editingSeat, setEditingSeat] = useState(false);
-  const [missedTap, setMissedTap] = useState(false);
+  // The seat comes from the camera (SPEC 2.4): the motion permission asked
+  // for in the tap that opened the scanner, and what it found.
+  const [scan, setScan] = useState<Promise<boolean> | null>(null);
+  const [cameraFound, setCameraFound] = useState<string | null>(null);
   const wakeLock = useWakeLock(snapshot.readyTapped);
 
   useEffect(() => {
@@ -49,16 +53,15 @@ export function ParticipantApp({ code }: { code: string }) {
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [client]);
 
-  const onTap = useCallback(
-    (point: Point) => {
-      const venue = client.getSnapshot().venue;
-      if (!venue) return;
-      const seat = pickSeat(venue, point);
-      setMissedTap(seat === null);
-      if (seat) client.setSeat(seat);
+  const onCameraFound = useCallback(
+    (seat: Point, summary: string) => {
+      client.setSeat(seat);
+      setCameraFound(summary);
+      setScan(null);
     },
     [client],
   );
+  const onCameraCancel = useCallback(() => setScan(null), []);
 
   const onReady = () => {
     // Fullscreen and wake lock need this tap as their user gesture, so both
@@ -95,11 +98,26 @@ export function ParticipantApp({ code }: { code: string }) {
         </Message>
       );
     case "seat":
+      if (scan && snapshot.positioning) {
+        return (
+          <SeatScanner
+            positioning={snapshot.positioning}
+            motion={scan}
+            onFound={onCameraFound}
+            onCancel={onCameraCancel}
+          />
+        );
+      }
       return (
-        <SeatPicker
+        <SeatFinder
           snapshot={snapshot}
-          onTap={onTap}
-          missedTap={missedTap}
+          cameraFound={cameraFound}
+          // Motion permission must be asked inside the tap itself (iOS).
+          onScan={
+            cameraSupported() && snapshot.positioning
+              ? () => setScan(requestMotionPermission())
+              : null
+          }
           editing={snapshot.readyTapped}
           onReady={onReady}
           onDone={() => setEditingSeat(false)}
@@ -138,7 +156,7 @@ export function ParticipantApp({ code }: { code: string }) {
             className={styles.linkButton}
             onClick={() => setEditingSeat(true)}
           >
-            Change seat
+            Find my seat again
           </button>
         </main>
       );
@@ -173,56 +191,79 @@ function Message({
   );
 }
 
-function SeatPicker({
+/**
+ * Where the participant is, found with the camera (SPEC 2.4). The map only
+ * shows the result; the seat comes from pointing at the big screen.
+ */
+function SeatFinder({
   snapshot,
-  onTap,
-  missedTap,
+  cameraFound,
+  onScan,
   editing,
   onReady,
   onDone,
 }: {
   snapshot: ParticipantSnapshot;
-  onTap: (point: Point) => void;
-  missedTap: boolean;
+  /** What the last scan found, in words. */
+  cameraFound: string | null;
+  /** Opens the camera, or null where the camera can't be used. */
+  onScan: (() => void) | null;
   editing: boolean;
   onReady: () => void;
   onDone: () => void;
 }) {
+  const seat = snapshot.seat;
   return (
     <main className={`${styles.page} ${styles.picker}`} data-screen="seat">
       <header className={styles.header}>
-        <h1 className={styles.title}>Where are you sitting?</h1>
+        <h1 className={styles.title}>
+          {seat ? "Found you" : "Find your seat"}
+        </h1>
         <p className={styles.text}>
-          {missedTap
-            ? "Tap inside the seating area."
-            : snapshot.seat
-              ? "Tap again to move your spot."
-              : "Tap your spot on the map. The stage is at the top."}
+          {!onScan
+            ? "Finding your seat needs the camera. Open this page from the QR code on the big screen, in your phone's browser."
+            : cameraFound
+              ? `You're ${cameraFound}. The stage is at the top.`
+              : seat
+                ? "That's your spot. The stage is at the top."
+                : "Point your camera at the big screen and we'll work out where you are."}
         </p>
       </header>
       <div className={styles.map}>
         {snapshot.venue ? (
           <VenueView
             venue={snapshot.venue}
-            seat={snapshot.seat}
-            onTap={onTap}
-            label="Seating map. Tap where you are sitting."
+            seat={seat}
+            label={seat ? "Seating map with your spot" : "Seating map"}
           />
         ) : null}
       </div>
       <footer className={styles.footer}>
         <ReconnectNote snapshot={snapshot} />
-        {editing ? (
+        {onScan && seat ? (
+          <button
+            type="button"
+            className={styles.secondaryButton}
+            onClick={onScan}
+          >
+            Scan again
+          </button>
+        ) : null}
+        {!seat ? (
+          <button
+            type="button"
+            className={styles.button}
+            disabled={!onScan}
+            onClick={onScan ?? undefined}
+          >
+            Find my seat
+          </button>
+        ) : editing ? (
           <button type="button" className={styles.button} onClick={onDone}>
             Done
           </button>
         ) : (
-          <button
-            type="button"
-            className={styles.button}
-            disabled={!snapshot.seat}
-            onClick={onReady}
-          >
+          <button type="button" className={styles.button} onClick={onReady}>
             Ready
           </button>
         )}

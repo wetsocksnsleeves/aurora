@@ -1,6 +1,5 @@
-import { memo, type MouseEvent } from "react";
+import { memo } from "react";
 import type { Point, Venue } from "@/lib/types";
-import { clientToVenuePoint } from "@/lib/venue-geometry";
 import styles from "./VenueView.module.css";
 
 /** One participant dot on the map, in normalised venue coordinates. */
@@ -21,11 +20,6 @@ export type VenueViewProps = {
   dots?: readonly VenueDot[];
   /** The participant's own seat, drawn as a highlighted marker. */
   seat?: Point | null;
-  /**
-   * Called with the tapped point in 0..1 venue coordinates. Raw: apply
-   * `pickSeat` from `@/lib/venue-geometry` to snap or reject it.
-   */
-  onTap?: (point: Point) => void;
   /** Width / height of the venue space. Default 1 (square). */
   aspectRatio?: number;
   /** Dot radius as a fraction of the venue height. Default 0.012. */
@@ -47,7 +41,6 @@ function VenueViewImpl({
   venue,
   dots,
   seat,
-  onTap,
   aspectRatio = 1,
   dotRadius = 0.012,
   className,
@@ -56,26 +49,12 @@ function VenueViewImpl({
   const W = H * aspectRatio;
   const r = dotRadius * H;
 
-  const handleClick = onTap
-    ? (event: MouseEvent<SVGSVGElement>) => {
-        const point = clientToVenuePoint(
-          event.clientX,
-          event.clientY,
-          event.currentTarget.getBoundingClientRect(),
-        );
-        if (point) onTap(point);
-      }
-    : undefined;
-
   return (
     <svg
-      className={[styles.root, onTap ? styles.interactive : "", className]
-        .filter(Boolean)
-        .join(" ")}
+      className={[styles.root, className].filter(Boolean).join(" ")}
       viewBox={`0 0 ${W} ${H}`}
-      role={onTap ? "button" : "img"}
+      role="img"
       aria-label={label}
-      onClick={handleClick}
     >
       {venue.shapes.map((shape) => (
         <polygon

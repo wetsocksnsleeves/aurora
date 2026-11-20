@@ -162,7 +162,7 @@ describe("participant page", () => {
     try {
       await until(() => participantScreen(client.getSnapshot()) === "seat");
       const id = client.getSnapshot().participantId;
-      expect(client.getSnapshot().venue?.shapes).toHaveLength(2);
+      expect(client.getSnapshot().venue?.shapes).toHaveLength(1);
 
       client.setSeat({ x: 0.3, y: 0.6 });
       client.ready();

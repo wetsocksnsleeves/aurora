@@ -4,6 +4,7 @@ import {
   type ClipShape,
   type ParticipantState,
   type Point,
+  type PositioningConfig,
   type ScheduleEvent,
   type Show,
   type Venue,
@@ -80,6 +81,16 @@ export type StartRequest = { type: "start" };
 /** Host clicked Stop. Participants go dark and back to standby. */
 export type StopRequest = { type: "stop" };
 
+/**
+ * Not in SPEC 5.2. Host set the real-world sizes used to find seats with the
+ * phone camera (SPEC 2.4). Host only. The server stores them on the session
+ * and sends `positioning` to every participant and host.
+ */
+export type PositioningRequest = {
+  type: "positioning";
+  config: PositioningConfig;
+};
+
 export type ClientMessage =
   | JoinMessage
   | SeatMessage
@@ -88,7 +99,8 @@ export type ClientMessage =
   | ClockStatusMessage
   | HostMessage
   | StartRequest
-  | StopRequest;
+  | StopRequest
+  | PositioningRequest;
 
 export type ClientMessageType = ClientMessage["type"];
 
@@ -116,6 +128,8 @@ export type WelcomeMessage = {
   resumeToken: string;
   venue: Venue;
   state: WelcomeState;
+  /** Sizes for finding the seat with the camera (SPEC 2.4). */
+  positioning: PositioningConfig;
 };
 
 /** Clock handshake reply. `s1` is the server clock at reply time. */
@@ -154,7 +168,15 @@ export type SessionMessage = {
   venue: Venue;
   T0: number | null;
   show: Show;
+  /** Sizes for finding seats with the camera (SPEC 2.4). */
+  positioning: PositioningConfig;
   hostToken?: string;
+};
+
+/** The session's positioning sizes changed. Sent to participants and hosts. */
+export type PositioningMessage = {
+  type: "positioning";
+  config: PositioningConfig;
 };
 
 /** One dot on the host map. `x` and `y` are null until a seat is chosen. */
@@ -204,6 +226,7 @@ export type ServerMessage =
   | StopMessage
   | SessionMessage
   | ParticipantsMessage
+  | PositioningMessage
   | ErrorMessage;
 
 export type ServerMessageType = ServerMessage["type"];
@@ -325,6 +348,8 @@ function toClientMessage(v: Rec): ClientMessage {
       return { type: "start" };
     case "stop":
       return { type: "stop" };
+    case "positioning":
+      return { type: "positioning", config: positioningConfig(v.config) };
     default:
       throw new InvalidMessage(`unknown client message type "${v.type}"`);
   }
@@ -344,6 +369,7 @@ function toServerMessage(v: Rec): ServerMessage {
           seat: state.seat == null ? null : point(state.seat),
           T0: nullableNum(state, "T0"),
         },
+        positioning: positioningConfig(v.positioning),
       };
     }
     case "sync":
@@ -367,6 +393,7 @@ function toServerMessage(v: Rec): ServerMessage {
         venue: venue(v.venue),
         T0: nullableNum(v, "T0"),
         show: show(v.show),
+        positioning: positioningConfig(v.positioning),
       };
       if (v.hostToken !== undefined && v.hostToken !== null) {
         msg.hostToken = str(v, "hostToken");
@@ -378,6 +405,8 @@ function toServerMessage(v: Rec): ServerMessage {
         type: "participants",
         list: arr(v, "list").map(participantSummary),
       };
+    case "positioning":
+      return { type: "positioning", config: positioningConfig(v.config) };
     case "error": {
       const reason = str(v, "reason");
       if (!(ERROR_REASONS as readonly string[]).includes(reason)) {
@@ -463,6 +492,26 @@ function unit(v: Rec, key: string): number {
     throw new InvalidMessage(`\`${key}\` must be between 0 and 1`);
   }
   return value;
+}
+
+/** A real-world length in metres: positive and venue-sized. */
+function metres(v: Rec, key: string): number {
+  const value = num(v, key);
+  if (value <= 0 || value > 1000) {
+    throw new InvalidMessage(`\`${key}\` must be between 0 and 1000 metres`);
+  }
+  return value;
+}
+
+function positioningConfig(value: unknown): PositioningConfig {
+  if (!isRecord(value)) {
+    throw new InvalidMessage("positioning `config` must be an object");
+  }
+  return {
+    targetWidthM: metres(value, "targetWidthM"),
+    venueWidthM: metres(value, "venueWidthM"),
+    venueDepthM: metres(value, "venueDepthM"),
+  };
 }
 
 function point(value: unknown): Point {

@@ -1,21 +1,9 @@
 import type { Point, Venue } from "./types";
 
 /**
- * Pure geometry helpers for venue maps: turning a tap into a normalised
- * venue point, and testing that point against the venue's shapes. Used by
- * the participant page, the host map and the editor preview.
+ * Pure geometry helpers for venue maps: testing a normalised venue point
+ * against the venue's shapes. Used by the host map and the editor preview.
  */
-
-/** An element's box in client pixels, as from `getBoundingClientRect()`. */
-export type ClientRect = {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-};
-
-/** How far outside a shape (in normalised units) a tap still counts. */
-export const SEAT_SNAP_TOLERANCE = 0.04;
 
 export function clampUnit(value: number): number {
   if (Number.isNaN(value)) return 0;
@@ -23,25 +11,8 @@ export function clampUnit(value: number): number {
 }
 
 /**
- * Convert a pointer position in client pixels to a venue point in 0..1, given
- * the box the venue is drawn in. Returns null if the pointer is outside the
- * box or the box is empty.
- */
-export function clientToVenuePoint(
-  clientX: number,
-  clientY: number,
-  rect: ClientRect,
-): Point | null {
-  if (rect.width <= 0 || rect.height <= 0) return null;
-  const x = (clientX - rect.left) / rect.width;
-  const y = (clientY - rect.top) / rect.height;
-  if (x < 0 || x > 1 || y < 0 || y > 1) return null;
-  return { x, y };
-}
-
-/**
  * Ray-casting point-in-polygon test. Points exactly on an edge may land on
- * either side; callers that care use `pickSeat`, which snaps to edges.
+ * either side.
  */
 export function pointInPolygon(p: Point, polygon: readonly Point[]): boolean {
   let inside = false;
@@ -95,28 +66,4 @@ export function shapeAt(venue: Venue, p: Point): string | null {
     if (pointInPolygon(p, shape.points)) return shape.id;
   }
   return null;
-}
-
-/**
- * Decide where a tap at `p` puts the participant's seat:
- *
- * - inside a shape: the tapped point;
- * - within `tolerance` of a shape edge: the nearest point on that edge, so a
- *   slightly-off tap near the outline still counts;
- * - anywhere else: null (the tap is ignored);
- * - a venue with no shapes accepts any point.
- *
- * The result is clamped to 0..1, which the protocol requires.
- */
-export function pickSeat(
-  venue: Venue,
-  p: Point,
-  tolerance = SEAT_SNAP_TOLERANCE,
-): Point | null {
-  const clamped = { x: clampUnit(p.x), y: clampUnit(p.y) };
-  if (venue.shapes.length === 0) return clamped;
-  if (shapeAt(venue, clamped) !== null) return clamped;
-  const nearest = nearestPointOnVenue(venue, clamped);
-  if (!nearest || nearest.distance > tolerance) return null;
-  return { x: clampUnit(nearest.point.x), y: clampUnit(nearest.point.y) };
 }

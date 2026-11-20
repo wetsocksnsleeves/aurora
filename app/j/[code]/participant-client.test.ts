@@ -140,6 +140,7 @@ function welcome(
     resumeToken: "tok1",
     venue: TEST_VENUE,
     state: { participant: "connected", seat: null, T0: null },
+    positioning: { targetWidthM: 3, venueWidthM: 20, venueDepthM: 20 },
     ...overrides,
   };
 }
