@@ -148,8 +148,9 @@ export function VenueCanvas({
       className={styles.canvasFrame}
       style={{
         aspectRatio: String(VENUE_ASPECT),
-        // Fill the width, but never taller than 65% of the viewport.
-        width: `min(100%, calc(65dvh * ${VENUE_ASPECT}))`,
+        // Fill the width, but never taller than 55% of the viewport, so the
+        // transport and waveform fit below it on a laptop screen.
+        width: `min(100%, calc(55dvh * ${VENUE_ASPECT}))`,
       }}
     >
       <canvas

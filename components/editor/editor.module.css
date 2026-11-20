@@ -125,3 +125,73 @@
   touch-action: none;
   outline: none;
 }
+
+.transport {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.playButton {
+  min-width: 4.5rem;
+}
+
+.time {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9rem;
+  min-width: 11rem;
+}
+
+.control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.control select,
+.control input {
+  font: inherit;
+  color: var(--foreground);
+  background: #1c1c26;
+  border: 1px solid #33333f;
+  border-radius: 4px;
+  padding: 0.2rem 0.3rem;
+}
+
+.control input[type="range"] {
+  padding: 0;
+  width: 8rem;
+  accent-color: var(--accent);
+}
+
+.numberInput {
+  width: 5rem;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.timeline {
+  position: relative;
+  min-height: 120px;
+  padding: 0.5rem;
+  background: #111118;
+  border: 1px solid #33333f;
+  border-radius: 8px;
+}
+
+.waveform {
+  width: 100%;
+}
+
+.timelineEmpty {
+  margin: 0;
+  padding: 2.5rem 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
