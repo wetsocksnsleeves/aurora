@@ -23,7 +23,7 @@ The order puts the risky part first: sync is built and measured before the edito
 | 12 | Editor: audio import and timeline | 4. Editor | 10 | [x] |
 | 13 | Editor: clip tools | 4. Editor | 9, 11, 12 | [x] |
 | 14 | Editor: preview | 4. Editor | 13 | [x] |
-| 15 | Show list and host flow with audio | 5. Save and host | 5, 10, 14 | [ ] |
+| 15 | Show list and host flow with audio | 5. Save and host | 5, 10, 14 | [x] |
 | 16 | Real-device test | 6. Real-device test | 15 | [ ] |
 
 Chunks 8 to 10 do not depend on sync, so they can run in parallel with 4 to 7 if two people are working.

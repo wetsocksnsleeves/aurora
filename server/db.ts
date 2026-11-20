@@ -6,7 +6,15 @@ import type { Show } from "@/lib/types";
 import { dbPath } from "./data-dir";
 import { emptyShowInput, type ShowInput } from "./show-validation";
 
-export type ShowSummary = Pick<Show, "id" | "name" | "createdAt" | "updatedAt">;
+export type ShowSummary = Pick<
+  Show,
+  "id" | "name" | "createdAt" | "updatedAt"
+> & {
+  /** `showDurationMs(show)`: the audio length or the last clip end, if later. */
+  durationMs: number;
+  /** The show has an audio file. */
+  hasAudio: boolean;
+};
 
 type Handle = { path: string; db: Database.Database };
 
@@ -79,18 +87,34 @@ function showData(show: Pick<Show, "venue" | "audio" | "clips">): string {
   });
 }
 
-/** All shows, most recently updated first. Summaries only, no show JSON. */
+type SummaryRow = Omit<ShowRow, "data"> & {
+  audio_ms: number | null;
+  clips_end_ms: number | null;
+  audio_file: string | null;
+};
+
+/**
+ * All shows, most recently updated first. Summaries only: SQLite reads the
+ * duration and audio id out of the JSON, so the show bodies are not parsed.
+ */
 export function listShows(): ShowSummary[] {
   const rows = getDb()
     .prepare(
-      "SELECT id, name, created_at, updated_at FROM shows ORDER BY updated_at DESC, id",
+      `SELECT id, name, created_at, updated_at,
+        json_extract(data, '$.audio.durationMs') AS audio_ms,
+        json_extract(data, '$.audio.fileId') AS audio_file,
+        (SELECT MAX(json_extract(c.value, '$.endMs'))
+           FROM json_each(data, '$.clips') AS c) AS clips_end_ms
+      FROM shows ORDER BY updated_at DESC, id`,
     )
-    .all() as Omit<ShowRow, "data">[];
+    .all() as SummaryRow[];
   return rows.map((r) => ({
     id: r.id,
     name: r.name,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
+    durationMs: Math.max(0, r.audio_ms ?? 0, r.clips_end_ms ?? 0),
+    hasAudio: typeof r.audio_file === "string" && r.audio_file !== "",
   }));
 }
 
