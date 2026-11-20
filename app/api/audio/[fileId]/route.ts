@@ -6,6 +6,7 @@ import {
   isAudioFileId,
   parseRange,
 } from "@/server/audio-store";
+import { guardApiRequest } from "@/server/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +22,8 @@ export async function GET(
   request: Request,
   { params }: Context,
 ): Promise<Response> {
+  const refused = guardApiRequest(request, { write: false });
+  if (refused) return refused;
   const { fileId } = await params;
   if (!isAudioFileId(fileId)) return notFound();
 

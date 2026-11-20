@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Show } from "@/lib/types";
 import type { ShowSummary } from "@/server/db";
+import { MAX_JSON_BYTES } from "@/server/http";
+import {
+  MAX_CLIPS,
+  MAX_POLYGON_POINTS,
+  MAX_VENUE_SHAPES,
+} from "@/server/show-validation";
 import { withTempDataDir } from "@/server/testing/temp-data-dir";
 import * as item from "./[id]/route";
 import * as collection from "./route";
@@ -11,11 +17,11 @@ function ctx(id: string) {
   return { params: Promise.resolve({ id }) };
 }
 
-function jsonRequest(method: string, body?: unknown): Request {
-  return new Request("http://test/api/shows", {
+function jsonRequest(method: string, body?: unknown, raw?: string): Request {
+  return new Request("http://localhost/api/shows", {
     method,
     headers: { "content-type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: raw ?? (body === undefined ? undefined : JSON.stringify(body)),
   });
 }
 
@@ -63,7 +69,7 @@ describe("/api/shows", () => {
     const b = await create({ name: "B" });
     await item.PUT(jsonRequest("PUT", { name: "A2" }), ctx(a.id));
 
-    const res = collection.GET();
+    const res = collection.GET(jsonRequest("GET"));
     const { shows } = (await res.json()) as { shows: ShowSummary[] };
     const ids = shows.map((s) => s.id);
     expect(ids.indexOf(a.id)).toBeLessThan(ids.indexOf(b.id));
@@ -156,7 +162,7 @@ describe("/api/shows", () => {
       expect(((await res.json()) as { error: string }).error).toBeTruthy();
     }
     const bad = await item.PUT(
-      new Request("http://test", {
+      new Request("http://localhost", {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: "{not json",
@@ -193,11 +199,15 @@ describe("/api/shows", () => {
     >[]) {
       const body = JSON.stringify({ name: "x" });
       const post = await collection.POST(
-        new Request("http://test/api/shows", { method: "POST", headers, body }),
+        new Request("http://localhost/api/shows", {
+          method: "POST",
+          headers,
+          body,
+        }),
       );
       expect(post.status).toBe(415);
       const put = await item.PUT(
-        new Request("http://test/api/shows/x", {
+        new Request("http://localhost/api/shows/x", {
           method: "PUT",
           headers,
           body,
@@ -207,7 +217,7 @@ describe("/api/shows", () => {
       expect(put.status).toBe(415);
     }
     const withCharset = await collection.POST(
-      new Request("http://test/api/shows", {
+      new Request("http://localhost/api/shows", {
         method: "POST",
         headers: { "content-type": "application/json; charset=utf-8" },
         body: "{}",
@@ -221,19 +231,23 @@ describe("/api/shows", () => {
     const crossSite: Record<string, string>[] = [
       { "sec-fetch-site": "cross-site" },
       { "sec-fetch-site": "same-site" },
-      { origin: "https://evil.example", host: "aurora.example" },
-      { origin: "null", host: "aurora.example" },
+      { origin: "https://evil.example", host: "localhost:3000" },
+      { origin: "null", host: "localhost:3000" },
     ];
     for (const extra of crossSite) {
       const headers = { "content-type": "application/json", ...extra };
       const body = JSON.stringify({ name: "pwned" });
       const label = JSON.stringify(extra);
       const post = await collection.POST(
-        new Request("http://test/api/shows", { method: "POST", headers, body }),
+        new Request("http://localhost/api/shows", {
+          method: "POST",
+          headers,
+          body,
+        }),
       );
       expect(post.status, label).toBe(403);
       const put = await item.PUT(
-        new Request("http://test/api/shows/x", {
+        new Request("http://localhost/api/shows/x", {
           method: "PUT",
           headers,
           body,
@@ -242,7 +256,7 @@ describe("/api/shows", () => {
       );
       expect(put.status, label).toBe(403);
       const patch = await item.PATCH(
-        new Request("http://test/api/shows/x", {
+        new Request("http://localhost/api/shows/x", {
           method: "PATCH",
           headers,
           body,
@@ -251,7 +265,10 @@ describe("/api/shows", () => {
       );
       expect(patch.status, label).toBe(403);
       const del = await item.DELETE(
-        new Request("http://test/api/shows/x", { method: "DELETE", headers }),
+        new Request("http://localhost/api/shows/x", {
+          method: "DELETE",
+          headers,
+        }),
         ctx(created.id),
       );
       expect(del.status, label).toBe(403);
@@ -264,11 +281,11 @@ describe("/api/shows", () => {
     const created = await create();
     const sameOrigin: Record<string, string>[] = [
       { "sec-fetch-site": "same-origin" },
-      { origin: "http://aurora.example:3000", host: "aurora.example:3000" },
+      { origin: "http://localhost:3000", host: "localhost:3000" },
     ];
     for (const extra of sameOrigin) {
       const res = await item.PUT(
-        new Request("http://test/api/shows/x", {
+        new Request("http://localhost/api/shows/x", {
           method: "PUT",
           headers: { "content-type": "application/json", ...extra },
           body: JSON.stringify({ name: "ok" }),
@@ -276,6 +293,152 @@ describe("/api/shows", () => {
         ctx(created.id),
       );
       expect(res.status, JSON.stringify(extra)).toBe(200);
+    }
+  });
+
+  it("replies 413 to a JSON body over the limit", async () => {
+    const big = JSON.stringify({ name: "x".repeat(MAX_JSON_BYTES) });
+    const res = await collection.POST(jsonRequest("POST", undefined, big));
+    expect(res.status).toBe(413);
+
+    // Chunked, with no Content-Length to check up front.
+    let sent = 0;
+    const chunk = new TextEncoder().encode(" ".repeat(64 * 1024));
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent > MAX_JSON_BYTES * 4) return controller.close();
+        sent += chunk.byteLength;
+        controller.enqueue(chunk);
+      },
+    });
+    const streamed = await collection.POST(
+      new Request("http://localhost/api/shows", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+        duplex: "half",
+      } as RequestInit),
+    );
+    expect(streamed.status).toBe(413);
+    expect(sent).toBeLessThan(MAX_JSON_BYTES + 4 * chunk.byteLength);
+  });
+
+  it("rejects shows over the size caps with 400", async () => {
+    const created = await create();
+    const tri = [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 0, y: 1 },
+    ];
+    const clip = {
+      id: "c",
+      layer: 0,
+      startMs: 0,
+      endMs: 10,
+      color: "#ffffff",
+      fadeInMs: 0,
+      fadeOutMs: 0,
+      shape: { kind: "fill" },
+    };
+    const manyPoints = Array.from(
+      { length: MAX_POLYGON_POINTS + 1 },
+      (_, i) => ({
+        x: (i % 10) / 10,
+        y: Math.floor(i / 10) / 100,
+      }),
+    );
+    const cases = [
+      {
+        venue: {
+          shapes: Array.from({ length: MAX_VENUE_SHAPES + 1 }, (_, i) => ({
+            id: `s${i}`,
+            points: tri,
+          })),
+        },
+      },
+      { venue: { shapes: [{ id: "s", points: manyPoints }] } },
+      {
+        clips: Array.from({ length: MAX_CLIPS + 1 }, (_, i) => ({
+          ...clip,
+          id: `c${i}`,
+        })),
+      },
+      { clips: [{ ...clip, shape: { kind: "polygon", points: manyPoints } }] },
+    ];
+    for (const body of cases) {
+      const res = await item.PUT(jsonRequest("PUT", body), ctx(created.id));
+      expect(res.status).toBe(400);
+    }
+    // At the caps is fine.
+    const atCap = await item.PUT(
+      jsonRequest("PUT", {
+        clips: Array.from({ length: MAX_CLIPS }, (_, i) => ({
+          ...clip,
+          id: `c${i}`,
+        })),
+      }),
+      ctx(created.id),
+    );
+    expect(atCap.status).toBe(200);
+  });
+
+  it("refuses unknown Host headers with 403, reads included", async () => {
+    const created = await create();
+    const evil = { host: "rebind.evil.example" };
+    const get = (headers: Record<string, string>) =>
+      new Request("http://localhost/api/shows", { headers });
+    expect(collection.GET(get(evil)).status).toBe(403);
+    expect((await item.GET(get(evil), ctx(created.id))).status).toBe(403);
+    const post = await collection.POST(
+      new Request("http://localhost/api/shows", {
+        method: "POST",
+        headers: { ...evil, "content-type": "application/json" },
+        body: "{}",
+      }),
+    );
+    expect(post.status).toBe(403);
+    expect((await item.DELETE(get(evil), ctx(created.id))).status).toBe(403);
+  });
+
+  it("allows loopback hosts, the PUBLIC_URL host and ALLOWED_HOSTS", async () => {
+    const saved = {
+      PUBLIC_URL: process.env.PUBLIC_URL,
+      ALLOWED_HOSTS: process.env.ALLOWED_HOSTS,
+    };
+    process.env.PUBLIC_URL = "https://show.trycloudflare.com";
+    process.env.ALLOWED_HOSTS = "192.168.1.20, aurora.local";
+    try {
+      for (const host of [
+        "localhost:3000",
+        "127.0.0.1:41234",
+        "[::1]:3000",
+        "show.trycloudflare.com",
+        "192.168.1.20:3000",
+        "AURORA.local",
+      ]) {
+        const res = collection.GET(
+          new Request("http://localhost/api/shows", { headers: { host } }),
+        );
+        expect(res.status, host).toBe(200);
+      }
+      // A write from the tunnel origin passes the same-origin check.
+      const res = await collection.POST(
+        new Request("http://localhost/api/shows", {
+          method: "POST",
+          headers: {
+            host: "show.trycloudflare.com",
+            origin: "https://show.trycloudflare.com",
+            "content-type": "application/json",
+          },
+          body: "{}",
+        }),
+      );
+      expect(res.status).toBe(201);
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
     }
   });
 });

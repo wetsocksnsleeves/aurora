@@ -1,5 +1,5 @@
 import { deleteShow, getShow, updateShow } from "@/server/db";
-import { errorResponse, readJson, rejectCrossSite } from "@/server/http";
+import { errorResponse, guardApiRequest, readJson } from "@/server/http";
 import { parseShowPatch } from "@/server/show-validation";
 
 // better-sqlite3 is a native module, so this must run on Node.
@@ -14,9 +14,11 @@ function notFound(): Response {
 
 /** `{ show }`, or 404. */
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: Context,
 ): Promise<Response> {
+  const refused = guardApiRequest(request, { write: false });
+  if (refused) return refused;
   const show = getShow((await params).id);
   return show ? Response.json({ show }) : notFound();
 }
@@ -29,7 +31,7 @@ export async function PUT(
   request: Request,
   { params }: Context,
 ): Promise<Response> {
-  const refused = rejectCrossSite(request);
+  const refused = guardApiRequest(request, { write: true });
   if (refused) return refused;
   const body = await readJson(request);
   if (!body.ok) return body.response;
@@ -46,7 +48,7 @@ export async function DELETE(
   request: Request,
   { params }: Context,
 ): Promise<Response> {
-  const refused = rejectCrossSite(request);
+  const refused = guardApiRequest(request, { write: true });
   if (refused) return refused;
   return deleteShow((await params).id)
     ? new Response(null, { status: 204 })
