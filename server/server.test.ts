@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { rawUpgrade } from "./testing/raw-upgrade";
+import { TestClient } from "./testing/ws-client";
 import { spawnServer, type SpawnedServer } from "./testing/spawn-server";
 
 let server: SpawnedServer;
@@ -49,12 +50,19 @@ describe("custom server", () => {
     expect(server.output()).not.toContain("Error handling upgrade request");
   }, 30_000);
 
-  it("echoes messages on /ws", async () => {
-    const ws = await openSocket(server.wsUrl);
-    const reply = nextMessage(ws);
-    ws.send("ping 123");
-    expect(await reply).toBe("ping 123");
-    ws.close();
+  it("runs the join flow over /ws", async () => {
+    const host = await TestClient.connect(server.wsUrl);
+    host.send({ type: "host", showId: "test" });
+    const { code } = await host.next("session");
+
+    const phone = await TestClient.connect(server.wsUrl);
+    phone.send({ type: "join", code });
+    await phone.next("welcome");
+    phone.send({ type: "seat", x: 0.5, y: 0.5 });
+    phone.send({ type: "ready" });
+    expect((await phone.next("schedule")).events.length).toBeGreaterThan(0);
+
+    await Promise.all([host.close(), phone.close()]);
   });
 
   it("rejects upgrades on unknown paths and closes the socket", async () => {
