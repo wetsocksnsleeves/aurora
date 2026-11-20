@@ -1,5 +1,8 @@
 import type { Point } from "@/lib/types";
+import { clipToolHandlers } from "./clip-tools";
 import {
+  CLOSE_POLYGON_PX,
+  MIN_RECT_PX,
   hitTestShapes,
   pxDistance,
   rectFromCorners,
@@ -41,10 +44,7 @@ export type ToolHandler = {
   onKeyDown?(key: string, ctx: ToolContext): boolean;
 };
 
-/** Smallest rectangle side, in pixels, that counts as a drawn rectangle. */
-export const MIN_RECT_PX = 4;
-/** Clicking within this many pixels of the first point closes a polygon. */
-export const CLOSE_POLYGON_PX = 10;
+export { CLOSE_POLYGON_PX, MIN_RECT_PX };
 
 const selectTool: ToolHandler = {
   label: "Select",
@@ -186,14 +186,16 @@ const polygonTool: ToolHandler = {
   },
 };
 
-/**
- * Tools by id. Chunk 13 adds the clip tools here; the toolbar lists every
- * entry in `TOOL_ORDER`.
- */
+/** Tools by id. The toolbar lists every entry in `TOOL_ORDER`. */
 export const toolHandlers: Record<ToolId, ToolHandler> = {
   select: selectTool,
   rect: rectTool,
   polygon: polygonTool,
+  ...clipToolHandlers,
 };
 
-export const TOOL_ORDER: ToolId[] = ["select", "rect", "polygon"];
+/** Tools that edit the venue outline. */
+export const VENUE_TOOLS: ToolId[] = ["select", "rect", "polygon"];
+/** Tools that draw clips at the playhead (chunk 13). */
+export const CLIP_TOOLS: ToolId[] = ["fill", "shape", "moving", "brush"];
+export const TOOL_ORDER: ToolId[] = [...VENUE_TOOLS, ...CLIP_TOOLS];

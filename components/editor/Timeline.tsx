@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import type WaveSurfer from "wavesurfer.js";
 import type TimelinePlugin from "wavesurfer.js/dist/plugins/timeline.js";
 import { audioUrl } from "./api";
+import { ClipLane } from "./ClipLane";
 import { formatTime, snapTime, timelineTicks } from "./snap";
 import type { EditorState } from "./store";
 import { useEditorSelector, useEditorStore } from "./store-context";
@@ -19,11 +20,13 @@ type TimelinePluginInstance = ReturnType<typeof TimelinePlugin.create>;
  * drive playback by dispatching.
  *
  * Clicks and drags on the waveform move the playhead, snapped to the grid.
+ * The clip lane below it follows the waveform's width and scroll.
  */
 export function Timeline() {
   const store = useEditorStore();
   const fileId = useEditorSelector((s) => s.show.audio.fileId);
   const containerRef = useRef<HTMLDivElement>(null);
+  const laneContentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -83,6 +86,29 @@ export function Timeline() {
         );
       };
 
+      // Keep the clip lane aligned with the waveform. Wavesurfer renders in a
+      // shadow root, so the lane mirrors its width and scroll instead of
+      // living inside it.
+      const syncLane = () => {
+        const content = laneContentRef.current;
+        if (!content) return;
+        content.style.width = `${instance.getWrapper().clientWidth}px`;
+        content.style.transform = `translateX(${-instance.getScroll()}px)`;
+      };
+      instance.on("scroll", syncLane);
+      instance.on("zoom", syncLane);
+      instance.on("resize", syncLane);
+      instance.on("redrawcomplete", syncLane);
+      // Horizontal wheel or trackpad swipes over the lane pan the waveform.
+      const lane = laneContentRef.current?.parentElement;
+      const onWheel = (e: WheelEvent) => {
+        if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+        e.preventDefault();
+        instance.setScroll(instance.getScroll() + e.deltaX);
+      };
+      lane?.addEventListener("wheel", onWheel, { passive: false });
+      instance.on("destroy", () => lane?.removeEventListener("wheel", onWheel));
+
       instance.on("decode", (durationSec) => {
         const durationMs = Math.round(durationSec * 1000);
         store.dispatch({ type: "setShowAudio", audio: { fileId, durationMs } });
@@ -93,6 +119,7 @@ export function Timeline() {
         instance.zoom(state.zoomPxPerSec);
         instance.setTime(state.currentTimeMs / 1000);
         updateRuler(state);
+        syncLane();
         store.dispatch({ type: "setAudioStatus", status: "ready" });
       });
       instance.on("error", (err) => {
@@ -185,6 +212,7 @@ export function Timeline() {
         className={styles.waveform}
         data-testid="waveform"
       />
+      {fileId && <ClipLane contentRef={laneContentRef} />}
       {!fileId && (
         <p className={styles.timelineEmpty}>
           Upload an audio file to see its waveform.

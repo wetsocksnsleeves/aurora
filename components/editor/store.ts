@@ -1,4 +1,10 @@
-import type { Point, Show, Venue } from "@/lib/types";
+import type { Clip, Point, Show, Venue } from "@/lib/types";
+import {
+  DEFAULT_CLIP_COLOR,
+  minClipMs,
+  patchClip,
+  type ClipPatch,
+} from "./clips";
 import { DEFAULT_SNAP, snapTime, type SnapSettings } from "./snap";
 
 /**
@@ -6,20 +12,41 @@ import { DEFAULT_SNAP, snapTime, type SnapSettings } from "./snap";
  * from `EditorState`, and every change goes through `editorReducer`, so it can
  * be tested without a browser.
  *
- * Extending (chunks 13 and 14): add members to `ToolId`, `Selection`, `Draft`
- * and `EditorAction`, handle them in `editorReducer`, and register tools in
- * `tools.ts` and canvas layers in `layers.ts`.
+ * Extending: add members to `ToolId`, `Selection`, `Draft` and
+ * `EditorAction`, handle them in `editorReducer`, and register tools in
+ * `tools.ts` and canvas layers in `layers.ts`. Clip helpers (timing, drags,
+ * interpolation) live in `clips.ts`, clip tools in `clip-tools.ts`.
  */
 
-export type ToolId = "select" | "rect" | "polygon";
+export type ToolId =
+  | "select"
+  | "rect"
+  | "polygon"
+  // Clip tools (chunk 13).
+  | "fill"
+  | "shape"
+  | "moving"
+  | "brush";
 
-export type Selection = { kind: "venueShape"; id: string } | null;
+export type Selection =
+  { kind: "venueShape"; id: string } | { kind: "clip"; id: string } | null;
 
 /** An in-progress drawing or drag. Rendered by the draft layer. */
 export type Draft =
   | { kind: "rect"; from: Point; to: Point }
   | { kind: "polygon"; points: Point[]; hover: Point | null }
-  | { kind: "moveShape"; id: string; origin: Point; original: Point[] };
+  | { kind: "moveShape"; id: string; origin: Point; original: Point[] }
+  // Clip tools. `moving` drafts go on to a `clipMove` step once the shape is drawn.
+  | { kind: "clipRect"; from: Point; to: Point; moving: boolean }
+  | {
+      kind: "clipPolygon";
+      points: Point[];
+      hover: Point | null;
+      moving: boolean;
+    }
+  /** A drawn moving shape waiting for its end position: drag sets `offset`. */
+  | { kind: "clipMove"; points: Point[]; origin: Point | null; offset: Point }
+  | { kind: "brush"; points: Point[] };
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
@@ -43,6 +70,8 @@ export type EditorState = {
   tool: ToolId;
   selection: Selection;
   draft: Draft | null;
+  /** Colour for newly drawn clips. */
+  clipColor: string;
 
   // Timeline (chunk 12). The audio engine (Timeline.tsx) reports time with
   // `tick` and follows `seek`, `setPlaying` and `setZoom`. Anything that
@@ -66,6 +95,17 @@ export type EditorAction =
   | { type: "addVenueShape"; shape: Venue["shapes"][number] }
   | { type: "setVenueShapePoints"; id: string; points: Point[] }
   | { type: "deleteVenueShape"; id: string }
+  | { type: "setClipColor"; color: string }
+  /** Appends a clip and selects it. */
+  | { type: "addClip"; clip: Clip }
+  /** Changes a clip; times and fades are repaired (see `patchClip`). */
+  | { type: "updateClip"; id: string; patch: ClipPatch }
+  | { type: "deleteClip"; id: string }
+  /**
+   * One layer up or down. The clip also moves to the end (up) or start (down)
+   * of the list, so it wins (or loses) against clips on the same layer.
+   */
+  | { type: "moveClipLayer"; id: string; direction: 1 | -1 }
   /** Delete whatever `selection` points at. */
   | { type: "deleteSelection" }
   | { type: "saveStarted" }
@@ -93,6 +133,7 @@ export function initialEditorState(show: Show): EditorState {
     tool: "select",
     selection: null,
     draft: null,
+    clipColor: DEFAULT_CLIP_COLOR,
     currentTimeMs: 0,
     playing: false,
     seekSeq: 0,
@@ -125,6 +166,10 @@ function withVenue(state: EditorState, shapes: Venue["shapes"]): EditorState {
     ...state.show,
     venue: { ...state.show.venue, shapes },
   });
+}
+
+function withClips(state: EditorState, clips: Clip[]): EditorState {
+  return withShow(state, { ...state.show, clips });
 }
 
 export function editorReducer(
@@ -175,6 +220,56 @@ export function editorReducer(
       return selected ? { ...next, selection: null } : next;
     }
 
+    case "setClipColor":
+      return action.color === state.clipColor
+        ? state
+        : { ...state, clipColor: action.color };
+
+    case "addClip":
+      return {
+        ...withClips(state, [...state.show.clips, action.clip]),
+        selection: { kind: "clip", id: action.clip.id },
+      };
+
+    case "updateClip": {
+      const clips = state.show.clips;
+      const index = clips.findIndex((c) => c.id === action.id);
+      if (index === -1) return state;
+      const clip = patchClip(clips[index], action.patch, minClipMs(state.snap));
+      const old = clips[index];
+      const same = (Object.keys(clip) as (keyof Clip)[]).every(
+        (k) => clip[k] === old[k],
+      );
+      if (same) return state;
+      return withClips(
+        state,
+        clips.map((c, i) => (i === index ? clip : c)),
+      );
+    }
+
+    case "deleteClip": {
+      const clips = state.show.clips;
+      if (!clips.some((c) => c.id === action.id)) return state;
+      const next = withClips(
+        state,
+        clips.filter((c) => c.id !== action.id),
+      );
+      const selected =
+        state.selection?.kind === "clip" && state.selection.id === action.id;
+      return selected ? { ...next, selection: null } : next;
+    }
+
+    case "moveClipLayer": {
+      const clip = state.show.clips.find((c) => c.id === action.id);
+      if (!clip) return state;
+      const moved = { ...clip, layer: clip.layer + action.direction };
+      const rest = state.show.clips.filter((c) => c.id !== action.id);
+      return withClips(
+        state,
+        action.direction === 1 ? [...rest, moved] : [moved, ...rest],
+      );
+    }
+
     case "deleteSelection": {
       const selection = state.selection;
       if (!selection) return state;
@@ -184,6 +279,8 @@ export function editorReducer(
             type: "deleteVenueShape",
             id: selection.id,
           });
+        case "clip":
+          return editorReducer(state, { type: "deleteClip", id: selection.id });
       }
       return state;
     }

@@ -18,6 +18,7 @@ import {
   useEditorSelector,
   useEditorStore,
 } from "./store-context";
+import { ClipInspector } from "./ClipInspector";
 import { Timeline } from "./Timeline";
 import { Toolbar } from "./Toolbar";
 import { Transport } from "./Transport";
@@ -106,12 +107,15 @@ function EditorLayout() {
       </header>
       <Toolbar />
       <p className={styles.hint}>{toolHandlers[tool].hint}</p>
-      <VenueCanvas
-        layers={DEFAULT_LAYERS}
-        onResize={(size) => {
-          canvasSize.current = size;
-        }}
-      />
+      <div className={styles.workspace}>
+        <VenueCanvas
+          layers={DEFAULT_LAYERS}
+          onResize={(size) => {
+            canvasSize.current = size;
+          }}
+        />
+        <ClipInspector />
+      </div>
       <Transport />
       <Timeline />
     </main>

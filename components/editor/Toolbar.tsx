@@ -1,7 +1,8 @@
 "use client";
 
 import { useEditorSelector, useEditorStore } from "./store-context";
-import { TOOL_ORDER, toolHandlers } from "./tools";
+import { CLIP_TOOLS, VENUE_TOOLS, toolHandlers } from "./tools";
+import type { ToolId } from "./store";
 import styles from "./editor.module.css";
 
 export function Toolbar() {
@@ -9,9 +10,10 @@ export function Toolbar() {
   const tool = useEditorSelector((s) => s.tool);
   const hasSelection = useEditorSelector((s) => s.selection !== null);
 
-  return (
-    <div className={styles.toolbar} role="toolbar" aria-label="Tools">
-      {TOOL_ORDER.map((id) => {
+  const group = (label: string, ids: ToolId[]) => (
+    <>
+      <span className={styles.toolGroupLabel}>{label}</span>
+      {ids.map((id) => {
         const handler = toolHandlers[id];
         const active = id === tool;
         return (
@@ -29,6 +31,14 @@ export function Toolbar() {
           </button>
         );
       })}
+    </>
+  );
+
+  return (
+    <div className={styles.toolbar} role="toolbar" aria-label="Tools">
+      {group("Venue", VENUE_TOOLS)}
+      <span className={styles.separator} />
+      {group("Clips", CLIP_TOOLS)}
       <span className={styles.separator} />
       <button
         type="button"
