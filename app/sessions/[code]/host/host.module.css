@@ -187,3 +187,104 @@
   font-size: 0.9rem;
   color: #f87171;
 }
+
+.audio {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+  background: rgb(255 255 255 / 0.04);
+}
+
+.audioTitle {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.audioText,
+.audioError,
+.audioHint {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.audioText {
+  color: var(--foreground);
+}
+
+.audioError {
+  color: #f87171;
+}
+
+.audioHint {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.audioButton {
+  font: inherit;
+  font-weight: 600;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: var(--accent);
+  color: #04130d;
+  cursor: pointer;
+}
+
+.offset {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.offset input {
+  width: 100%;
+}
+
+.offsetLabel {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+}
+
+.offsetValue {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.offsetRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.offsetRow p {
+  flex: 1;
+}
+
+.linkButton {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.linkButton:disabled {
+  color: var(--muted);
+  text-decoration: none;
+  cursor: default;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}

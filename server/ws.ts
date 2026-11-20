@@ -10,7 +10,9 @@ import {
   type MessageOfType,
   type ServerMessage,
 } from "@/lib/protocol";
-import { TEST_SHOW, TEST_SHOW_ID, testSchedule } from "@/lib/test-show";
+import { builtinShow } from "@/lib/builtin-shows";
+import { testSchedule } from "@/lib/test-show";
+import { getShow } from "./db";
 import { compileInWorker } from "./compile-pool";
 import type { Point, Show } from "@/lib/types";
 import {
@@ -79,11 +81,12 @@ export const testWaveComputeSchedule: ScheduleComputer = (show, seat) => ({
 });
 
 /**
- * Chunk 1 default: only the test show exists.
- * Chunk 10/15 replaces this with a lookup in show storage.
+ * A built-in show (`lib/builtin-shows.ts`, e.g. the test show), else the
+ * saved show from SQLite. The session keeps a snapshot taken here (SPEC 8),
+ * so later edits do not reach a running session.
  */
 export const defaultResolveShow: ShowResolver = (showId) =>
-  showId === TEST_SHOW_ID ? TEST_SHOW : undefined;
+  builtinShow(showId) ?? getShow(showId) ?? undefined;
 
 export type AttachOptions = {
   /** Next's `app.getUpgradeHandler()`. */

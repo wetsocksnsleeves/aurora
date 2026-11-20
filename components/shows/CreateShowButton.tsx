@@ -5,8 +5,7 @@ import { useState } from "react";
 import { createShow } from "@/components/editor/api";
 
 /**
- * Creates an empty show and opens it in the editor. A stand-in entry point
- * until the show list (chunk 15).
+ * Creates an empty show and opens it in the editor. Used by the show list.
  */
 export function CreateShowButton({
   className,

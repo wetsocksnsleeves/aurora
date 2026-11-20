@@ -14,7 +14,7 @@ The order puts the risky part first: sync is built and measured before the edito
 | 3 | Host screen: QR code and live dots | 1. Join and standby | 1 | [x] |
 | 4 | `ClockSync` and the handshake | 2. Sync | 2 | [x] |
 | 5 | Start, stop, and rAF playback | 2. Sync | 3, 4 | [x] |
-| 6 | Simulated-client harness | 2. Sync | 5 | [ ] |
+| 6 | Simulated-client harness | 2. Sync | 5 | [x] |
 | 7 | Playwright browser sync test | 2. Sync | 5 | [ ] |
 | 8 | Schedule compiler: fill, polygons, layers | 3. Schedule compiler | 1 | [x] |
 | 9 | Schedule compiler: moving shapes and fades | 3. Schedule compiler | 8 | [x] |
@@ -22,8 +22,8 @@ The order puts the risky part first: sync is built and measured before the edito
 | 11 | Editor: venue drawing | 4. Editor | 10 | [x] |
 | 12 | Editor: audio import and timeline | 4. Editor | 10 | [x] |
 | 13 | Editor: clip tools | 4. Editor | 9, 11, 12 | [x] |
-| 14 | Editor: preview | 4. Editor | 13 | [ ] |
-| 15 | Show list and host flow with audio | 5. Save and host | 5, 10, 14 | [ ] |
+| 14 | Editor: preview | 4. Editor | 13 | [x] |
+| 15 | Show list and host flow with audio | 5. Save and host | 5, 10, 14 | [x] |
 | 16 | Real-device test | 6. Real-device test | 15 | [ ] |
 
 Chunks 8 to 10 do not depend on sync, so they can run in parallel with 4 to 7 if two people are working.

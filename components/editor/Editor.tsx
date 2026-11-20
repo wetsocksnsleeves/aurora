@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useHostShow } from "@/components/shows/host-show";
 import type { Show } from "@/lib/types";
 import { saveShow } from "./api";
 import type { Size } from "./geometry";
@@ -62,6 +63,16 @@ function EditorLayout() {
   const dirty = useEditorSelector(isDirty);
 
   const save = useCallback(() => void saveEditorShow(store), [store]);
+  const { host, hosting, error: hostError } = useHostShow();
+
+  // Host what is on screen: save first, so the session's snapshot (taken
+  // from the saved show) matches the editor.
+  const saveAndHost = async () => {
+    if (isDirty(store.getState())) await saveEditorShow(store);
+    const state = store.getState();
+    if (isDirty(state) || state.saveStatus === "error") return;
+    await host(state.show.id);
+  };
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -104,6 +115,23 @@ function EditorLayout() {
         >
           Save
         </button>
+        <button
+          type="button"
+          className={styles.button}
+          onClick={() => void saveAndHost()}
+          disabled={hosting !== null}
+          title="Save, then start a session for this show"
+        >
+          {hosting ? "Hosting…" : "Save and host"}
+        </button>
+        {hostError ? (
+          <span
+            className={`${styles.status} ${styles.statusError}`}
+            role="alert"
+          >
+            Could not host: {hostError}
+          </span>
+        ) : null}
       </header>
       <Toolbar />
       <p className={styles.hint}>{toolHandlers[tool].hint}</p>

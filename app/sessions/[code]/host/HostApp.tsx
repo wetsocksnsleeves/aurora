@@ -23,6 +23,7 @@ import {
 import type { ParticipantSummary } from "@/lib/protocol";
 import { PARTICIPANT_STATES, type Show } from "@/lib/types";
 import { HostClient, browserHostDeps } from "../../host-client";
+import { AudioPanel, useHostAudio } from "./AudioPanel";
 import styles from "./host.module.css";
 
 /**
@@ -31,6 +32,9 @@ import styles from "./host.module.css";
  * state, and Start/Stop. While a show runs, playing dots take the colour the
  * phone shows (`colorAt` on the session's show snapshot at the host's own
  * `serverNow() - T0`), repainted every animation frame.
+ *
+ * The host machine plays the show's audio (SPEC 4.8, `useHostAudio`). Start
+ * doubles as the user gesture that lets the browser play sound.
  */
 export function HostApp({ code }: { code: string }) {
   const [client] = useState(() => new HostClient(code, browserHostDeps));
@@ -78,6 +82,7 @@ export function HostApp({ code }: { code: string }) {
     T0,
   );
   const qr = useQrSvg(session?.joinUrl ?? null);
+  const audio = useHostAudio(client, show, T0, clockReady);
 
   if (fatal) {
     return (
@@ -132,7 +137,11 @@ export function HostApp({ code }: { code: string }) {
               type="button"
               className={styles.start}
               disabled={connection !== "open" || counts.standby === 0}
-              onClick={() => client.startShow()}
+              onClick={() => {
+                // The click is the gesture that lets the AudioContext run.
+                void audio.audio.unlock();
+                client.startShow();
+              }}
             >
               Start
             </button>
@@ -162,6 +171,8 @@ export function HostApp({ code }: { code: string }) {
             </p>
           ) : null}
         </div>
+
+        <AudioPanel controls={audio} />
 
         <ul className={styles.counts}>
           {PARTICIPANT_STATES.map((state) => (

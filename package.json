@@ -17,6 +17,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "sim": "tsx scripts/sim.ts",
     "test:e2e": "echo 'test:e2e: no browser tests yet (DEVELOPMENT.md chunk 7)' && exit 0"
   },
   "dependencies": {

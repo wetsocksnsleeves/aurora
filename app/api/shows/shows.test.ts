@@ -79,6 +79,47 @@ describe("/api/shows", () => {
     expect(shows[0]).not.toHaveProperty("venue");
   });
 
+  it("lists each show's duration and whether it has audio", async () => {
+    const clip = (endMs: number) => ({
+      id: `c${endMs}`,
+      layer: 0,
+      startMs: 0,
+      endMs,
+      color: "#ffffff",
+      fadeInMs: 0,
+      fadeOutMs: 0,
+      shape: { kind: "fill" },
+    });
+    const empty = await create({ name: "Empty" });
+    const withAudio = await create({
+      audio: {
+        fileId: "01234567-89ab-cdef-0123-456789abcdef.mp3",
+        durationMs: 90_000,
+      },
+      clips: [clip(1_000)],
+    });
+    const clipsPastAudio = await create({
+      audio: { fileId: "", durationMs: 1_000 },
+      clips: [clip(5_000), clip(12_000)],
+    });
+
+    const res = collection.GET(jsonRequest("GET"));
+    const { shows } = (await res.json()) as { shows: ShowSummary[] };
+    const byId = new Map(shows.map((s) => [s.id, s]));
+    expect(byId.get(empty.id)).toMatchObject({
+      durationMs: 0,
+      hasAudio: false,
+    });
+    expect(byId.get(withAudio.id)).toMatchObject({
+      durationMs: 90_000,
+      hasAudio: true,
+    });
+    expect(byId.get(clipsPastAudio.id)).toMatchObject({
+      durationMs: 12_000,
+      hasAudio: false,
+    });
+  });
+
   it("updates only the fields sent", async () => {
     const created = await create({ name: "Keep me" });
     const clip = {

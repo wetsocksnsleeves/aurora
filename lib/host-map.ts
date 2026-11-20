@@ -94,7 +94,8 @@ export function showStatus(showMs: number, durationMs: number): string {
   return `Playing ${clockText(showMs)} / ${clockText(durationMs)}`;
 }
 
-function clockText(ms: number): string {
+/** `m:ss`, rounded down to the second. */
+export function clockText(ms: number): string {
   const total = Math.floor(ms / 1000);
   const m = Math.floor(total / 60);
   const s = total % 60;

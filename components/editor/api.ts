@@ -54,3 +54,24 @@ export async function uploadAudio(
 export function audioUrl(fileId: string): string {
   return `/api/audio/${encodeURIComponent(fileId)}`;
 }
+
+/** One row of `GET /api/shows` (`ShowSummary` in `server/db.ts`). */
+export type ShowListItem = Pick<
+  Show,
+  "id" | "name" | "createdAt" | "updatedAt"
+> & { durationMs: number; hasAudio: boolean };
+
+/** Saved shows, most recently updated first. */
+export async function listShows(): Promise<ShowListItem[]> {
+  const res = await fetch("/api/shows", { cache: "no-store" });
+  if (!res.ok) throw await errorFrom(res);
+  return ((await res.json()) as { shows: ShowListItem[] }).shows;
+}
+
+/** Delete a saved show. A show that is already gone counts as deleted. */
+export async function deleteShow(id: string): Promise<void> {
+  const res = await fetch(`/api/shows/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok && res.status !== 404) throw await errorFrom(res);
+}
