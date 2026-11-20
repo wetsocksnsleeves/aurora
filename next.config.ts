@@ -29,6 +29,12 @@ const nextConfig: NextConfig = {
   // directory, so parallel test files and `npm run dev` don't share Next's
   // dev lock.
   distDir: process.env.NEXT_DIST_DIR || ".next",
+  // Next dev adds its distDir to the tsconfig `include` list on startup.
+  // Test servers point this at a throwaway tsconfig that extends the real
+  // one, so running tests never rewrites tsconfig.json.
+  typescript: {
+    tsconfigPath: process.env.NEXT_TSCONFIG_PATH || "tsconfig.json",
+  },
   // Native module: load it with Node's require instead of bundling it.
   serverExternalPackages: ["better-sqlite3"],
   allowedDevOrigins: devOrigins(),
