@@ -14,6 +14,8 @@ import { builtinShow } from "@/lib/builtin-shows";
 import { testSchedule } from "@/lib/test-show";
 import { getShow } from "./db";
 import { compileInWorker } from "./compile-pool";
+import { LOOPBACK_HOSTNAMES } from "./http";
+import { lanAddresses } from "./lan";
 import type { Point, Show } from "@/lib/types";
 import {
   SessionError,
@@ -100,6 +102,11 @@ export type AttachOptions = {
    * `PUBLIC_URL` env var, then to the origin the host connected through.
    */
   publicUrl?: string;
+  /**
+   * LAN addresses for join links when the host page is open on localhost,
+   * which phones cannot reach. Defaults to `lanAddresses()`.
+   */
+  lanAddresses?: () => string[];
   computeSchedule?: ScheduleComputer;
   resolveShow?: ShowResolver;
   /** Defaults to `PARTICIPANTS_THROTTLE_MS`. */
@@ -549,7 +556,10 @@ export class WsRouter {
     const base = (
       this.options.publicUrl ??
       process.env.PUBLIC_URL ??
-      conn.origin
+      reachableOrigin(
+        conn.origin,
+        (this.options.lanAddresses ?? lanAddresses)(),
+      )
     ).replace(/\/+$/, "");
     this.send(conn, {
       type: "session",
@@ -697,6 +707,23 @@ function originOf(req: IncomingMessage): string {
   const host =
     first(req.headers["x-forwarded-host"]) ?? req.headers.host ?? "localhost";
   return `${proto}://${host}`;
+}
+
+/**
+ * `origin`, unless it is a loopback address: phones cannot reach that, so
+ * swap in the first LAN address, keeping the scheme and port.
+ */
+export function reachableOrigin(origin: string, lan: string[]): string {
+  try {
+    const url = new URL(origin);
+    if (!LOOPBACK_HOSTNAMES.includes(url.hostname) || lan.length === 0) {
+      return origin;
+    }
+    url.hostname = lan[0];
+    return url.origin;
+  } catch {
+    return origin;
+  }
 }
 
 function rawToString(data: RawData): string {

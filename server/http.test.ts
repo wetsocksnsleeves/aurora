@@ -104,7 +104,7 @@ describe("hostnameOf", () => {
 
 describe("allowedHostnames", () => {
   it("always includes loopback", () => {
-    expect([...allowedHostnames({})].sort()).toEqual([
+    expect([...allowedHostnames({}, [])].sort()).toEqual([
       "127.0.0.1",
       "[::1]",
       "localhost",
@@ -120,6 +120,12 @@ describe("allowedHostnames", () => {
     expect(hosts.has("192.168.1.20")).toBe(true);
     expect(hosts.has("aurora.local")).toBe(true);
     expect(hosts.has("")).toBe(false);
+  });
+
+  it("adds this machine's LAN addresses", () => {
+    const hosts = allowedHostnames({}, ["192.168.0.200", "10.0.0.5"]);
+    expect(hosts.has("192.168.0.200")).toBe(true);
+    expect(hosts.has("10.0.0.5")).toBe(true);
   });
 });
 

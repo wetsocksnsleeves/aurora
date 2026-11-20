@@ -1,5 +1,7 @@
 /** Helpers shared by the API route handlers and `proxy.ts`. */
 
+import { lanAddresses } from "./lan";
+
 export type BodyResult<T> =
   { ok: true; value: T } | { ok: false; response: Response };
 
@@ -11,7 +13,7 @@ export function errorResponse(status: number, error: string): Response {
 }
 
 /** Hostnames served on any port, for local use. */
-const LOOPBACK_HOSTNAMES = ["localhost", "127.0.0.1", "[::1]"];
+export const LOOPBACK_HOSTNAMES = ["localhost", "127.0.0.1", "[::1]"];
 
 /**
  * The lowercased hostname, without port, of a `Host` header value or a URL.
@@ -31,14 +33,19 @@ export function hostnameOf(value: string): string | null {
 }
 
 /**
- * Hostnames the API answers to: loopback, the host of `PUBLIC_URL`, and the
- * comma-separated `ALLOWED_HOSTS` (for example a LAN address). Ports are
- * ignored. Read on every call so tests and restarts see env changes.
+ * Hostnames the API answers to: loopback, this machine's LAN IPs, the host of
+ * `PUBLIC_URL`, and the comma-separated `ALLOWED_HOSTS`. Ports are ignored.
+ * Read on every call so tests, restarts and network changes are seen.
+ *
+ * The machine's own IPs are safe to allow: DNS rebinding needs an attacker's
+ * domain name in `Host`, and a cross-site page that targets the IP directly
+ * is refused by `rejectCrossSite` and the browser's CORS checks.
  */
 export function allowedHostnames(
   env: Record<string, string | undefined> = process.env,
+  lan: string[] = lanAddresses(),
 ): Set<string> {
-  const hosts = new Set(LOOPBACK_HOSTNAMES);
+  const hosts = new Set([...LOOPBACK_HOSTNAMES, ...lan]);
   const candidates = [env.PUBLIC_URL, ...(env.ALLOWED_HOSTS ?? "").split(",")];
   for (const candidate of candidates) {
     if (!candidate) continue;

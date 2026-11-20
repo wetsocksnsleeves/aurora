@@ -1,12 +1,14 @@
 import type { NextConfig } from "next";
+import { lanAddresses } from "./server/lan";
 
 /**
  * Hosts allowed to load dev-mode resources (HMR, chunks) from another device,
- * e.g. a phone on the LAN. Taken from PUBLIC_URL and ALLOWED_HOSTS so one
- * setting covers both the API host allowlist and Next's dev origin check.
+ * e.g. a phone on the LAN. Matches the API host allowlist: this machine's LAN
+ * IPs, PUBLIC_URL and ALLOWED_HOSTS. Read once at startup, so restart
+ * `npm run dev` after switching networks.
  */
 function devOrigins(): string[] {
-  const hosts = new Set<string>();
+  const hosts = new Set<string>(lanAddresses());
   const publicUrl = process.env.PUBLIC_URL;
   if (publicUrl) {
     try {
