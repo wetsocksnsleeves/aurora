@@ -3,9 +3,6 @@
 
 import type { Clip, Point, Schedule, Show, Venue } from "./types";
 
-// Moving polygons (`moveTo`) and fades are not applied yet: a moving polygon
-// stays at its start position and clips play at full colour.
-
 /** Sampling interval of the compiler (50 Hz). */
 export const SAMPLE_MS = 20;
 
@@ -70,9 +67,9 @@ export function colorAt(show: Show, seat: Point, tMs: number): string {
     if (!isActive(clip, tMs)) continue;
     // On equal layers the later clip draws on top.
     if (top && clip.layer < top.layer) continue;
-    if (covers(clip, p)) top = clip;
+    if (covers(clip, p, tMs)) top = clip;
   }
-  return top ? toHex(parseColor(top.color)) : BLACK;
+  return top ? shade(parseColor(top.color), top, tMs) : BLACK;
 }
 
 /**
@@ -135,6 +132,20 @@ export function pointInPolygon(p: Point, polygon: Point[]): boolean {
   return inside;
 }
 
+/**
+ * Fade envelope in 0..1 at `tMs` for a clip active at `tMs`: ramps up over
+ * `fadeInMs` from `startMs` and down over `fadeOutMs` to `endMs`.
+ */
+export function fadeEnvelope(
+  clip: Pick<Clip, "startMs" | "endMs" | "fadeInMs" | "fadeOutMs">,
+  tMs: number,
+): number {
+  let f = 1;
+  if (clip.fadeInMs > 0) f = Math.min(f, (tMs - clip.startMs) / clip.fadeInMs);
+  if (clip.fadeOutMs > 0) f = Math.min(f, (clip.endMs - tMs) / clip.fadeOutMs);
+  return Math.max(0, Math.min(1, f));
+}
+
 function prepareClips(show: Show): PreparedClip[] {
   // Highest layer first. On equal layers the clip later in the list draws
   // on top, as it would in the editor.
@@ -152,8 +163,14 @@ function prepareClips(show: Show): PreparedClip[] {
 function sample(clips: PreparedClip[], p: Point, tMs: number): string {
   for (const c of clips) {
     if (!isActive(c.clip, tMs)) continue;
-    c.staticHit ??= covers(c.clip, p);
-    if (c.staticHit) return toHex(c.rgb);
+    let hit: boolean;
+    if (isMoving(c.clip)) {
+      hit = covers(c.clip, p, tMs);
+    } else {
+      c.staticHit ??= covers(c.clip, p, tMs);
+      hit = c.staticHit;
+    }
+    if (hit) return shade(c.rgb, c.clip, tMs);
   }
   return BLACK;
 }
@@ -162,9 +179,30 @@ function isActive(clip: Clip, tMs: number): boolean {
   return tMs >= clip.startMs && tMs < clip.endMs;
 }
 
-/** Whether `clip` covers seat `p`. */
-function covers(clip: Clip, p: Point): boolean {
-  return clip.shape.kind === "fill" || pointInPolygon(p, clip.shape.points);
+function isMoving(clip: Clip): boolean {
+  const move = clip.shape.kind === "polygon" ? clip.shape.moveTo : undefined;
+  return !!move && (move.x !== 0 || move.y !== 0);
+}
+
+/** Whether `clip`, positioned as at `tMs`, covers seat `p`. */
+function covers(clip: Clip, p: Point, tMs: number): boolean {
+  const shape = clip.shape;
+  if (shape.kind === "fill") return true;
+  const move = shape.moveTo;
+  if (!move || (move.x === 0 && move.y === 0)) {
+    return pointInPolygon(p, shape.points);
+  }
+  // Offsetting the polygon by d is the same as testing p - d against the
+  // original polygon, which avoids allocating a moved copy.
+  const progress = (tMs - clip.startMs) / (clip.endMs - clip.startMs);
+  return pointInPolygon(
+    { x: p.x - move.x * progress, y: p.y - move.y * progress },
+    shape.points,
+  );
+}
+
+function shade(rgb: Rgb, clip: Clip, tMs: number): string {
+  return scaleColor(rgb, fadeEnvelope(clip, tMs));
 }
 
 /** Parses `#rgb` or `#rrggbb`. Anything else is treated as black. */
@@ -185,8 +223,11 @@ function parseColor(color: string): Rgb {
   };
 }
 
-function toHex({ r, g, b }: Rgb): string {
-  const ch = (c: number) => c.toString(16).padStart(2, "0");
+function scaleColor({ r, g, b }: Rgb, f: number): string {
+  const ch = (c: number) =>
+    Math.round(c * f)
+      .toString(16)
+      .padStart(2, "0");
   return `#${ch(r)}${ch(g)}${ch(b)}`;
 }
 
