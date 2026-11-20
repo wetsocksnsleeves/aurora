@@ -42,7 +42,10 @@ export async function startServer(
   server.on("request", (req, res) => {
     void handle(req, res);
   });
-  const wss = attachWebSocketServer(server, app.getUpgradeHandler());
+  const wss = attachWebSocketServer(server, {
+    nextUpgrade: app.getUpgradeHandler(),
+    forwardNextUpgrades: options.dev,
+  });
 
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);

@@ -9,6 +9,12 @@ export default defineConfig({
     environment: "node",
     // Tests sit next to the code they test as `*.test.ts(x)`.
     include: ["**/*.test.{ts,tsx}"],
-    exclude: ["node_modules/**", ".next/**", "dist/**", "e2e/**"],
+    exclude: [
+      "node_modules/**",
+      ".next/**",
+      ".next-test/**",
+      "dist/**",
+      "e2e/**",
+    ],
   },
 });

@@ -11,38 +11,89 @@ export type UpgradeHandler = (
   head: Buffer,
 ) => void | Promise<void>;
 
+/** Upgrade paths Next owns (dev HMR lives at `/_next/hmr`). */
+const NEXT_UPGRADE_PREFIX = "/_next/";
+
+export type AttachOptions = {
+  /** Next's `app.getUpgradeHandler()`. */
+  nextUpgrade: UpgradeHandler;
+  /** Forward `/_next/*` upgrades to Next. True in dev, where HMR needs it. */
+  forwardNextUpgrades: boolean;
+};
+
 /**
- * Attach the app WebSocket server to `server`.
+ * Attach the app WebSocket server to `server` and route every upgrade:
  *
- * Upgrades on `/ws` are handled here and never reach Next. Other upgrade paths
- * go to `fallback`, which is `app.getUpgradeHandler()` (SPEC 5.1).
+ * - `/ws` goes to the `ws` server (SPEC 5.1).
+ * - `/_next/*` goes to Next's upgrade handler, in dev only (HMR).
+ * - Anything else, and `/_next/*` in production, gets a 404 and the socket is
+ *   destroyed, so clients cannot park idle sockets on unknown paths.
  *
- * How Next 16 handles HMR (checked against next@16.4.6): on the first HTTP
- * request it adds its own `upgrade` listener to the server. That listener
- * serves `/_next/hmr` and ignores paths it does not route, such as `/ws`.
- * `app.getUpgradeHandler()` is a no-op in this version. We still forward to it
- * until Next's listener exists, and stop once it does, so an upgrade is never
- * handed to Next twice if a later version makes both paths live.
+ * If Next's handler throws or rejects, the socket is destroyed.
+ *
+ * Note on Next 16 (checked against next@16.4.6): `app.getUpgradeHandler()` is
+ * a no-op. On the first HTTP request Next adds its own `upgrade` listener to
+ * the server, and that listener is what serves `/_next/hmr`. It ignores paths
+ * it does not route, so it leaves `/ws` alone. We still forward to
+ * `getUpgradeHandler()` as the spec asks, so HMR keeps working if a later
+ * version stops attaching its own listener. `server/server.test.ts` fails if
+ * Next ever handles an HMR upgrade twice.
  */
 export function attachWebSocketServer(
   server: Server,
-  fallback: UpgradeHandler,
+  options: AttachOptions,
 ): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
 
   server.on("upgrade", (req, socket, head) => {
-    if (pathnameOf(req) === WS_PATH) {
+    const pathname = pathnameOf(req);
+    if (pathname === WS_PATH) {
       wss.handleUpgrade(req, socket, head, (ws) => {
         wss.emit("connection", ws, req);
       });
       return;
     }
-    const nextAttachedItsOwn = server.listenerCount("upgrade") > 1;
-    if (!nextAttachedItsOwn) void fallback(req, socket, head);
+    if (
+      options.forwardNextUpgrades &&
+      pathname?.startsWith(NEXT_UPGRADE_PREFIX)
+    ) {
+      forwardToNext(options.nextUpgrade, req, socket, head);
+      return;
+    }
+    rejectUpgrade(socket, 404, "Not Found");
   });
 
   wss.on("connection", handleConnection);
   return wss;
+}
+
+function forwardToNext(
+  handler: UpgradeHandler,
+  req: IncomingMessage,
+  socket: Duplex,
+  head: Buffer,
+): void {
+  const fail = (err: unknown) => {
+    console.error("Next upgrade handler failed", err);
+    socket.destroy();
+  };
+  try {
+    Promise.resolve(handler(req, socket, head)).catch(fail);
+  } catch (err) {
+    fail(err);
+  }
+}
+
+/** Answer an upgrade with a plain HTTP error and close the socket. */
+export function rejectUpgrade(
+  socket: Duplex,
+  status: number,
+  reason: string,
+): void {
+  if (socket.writable) {
+    socket.write(`HTTP/1.1 ${status} ${reason}\r\n\r\n`);
+  }
+  socket.destroy();
 }
 
 function handleConnection(ws: WebSocket): void {
@@ -52,6 +103,11 @@ function handleConnection(ws: WebSocket): void {
   });
 }
 
-function pathnameOf(req: IncomingMessage): string {
-  return new URL(req.url ?? "/", "http://localhost").pathname;
+/** The request path, or null if the URL cannot be parsed. */
+function pathnameOf(req: IncomingMessage): string | null {
+  try {
+    return new URL(req.url ?? "/", "http://localhost").pathname;
+  } catch {
+    return null;
+  }
 }

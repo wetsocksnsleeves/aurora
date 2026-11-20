@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
+import { rawUpgrade } from "./testing/raw-upgrade";
 import { spawnServer, type SpawnedServer } from "./testing/spawn-server";
 
 let server: SpawnedServer;
@@ -54,5 +55,12 @@ describe("custom server", () => {
     ws.send("ping 123");
     expect(await reply).toBe("ping 123");
     ws.close();
+  });
+
+  it("rejects upgrades on unknown paths and closes the socket", async () => {
+    const result = await rawUpgrade(server.port, "/nope");
+    expect(result.response).toBe("HTTP/1.1 404 Not Found\r\n\r\n");
+    expect(result.closed).toBe(true);
+    expect(server.output()).not.toContain("Error handling upgrade request");
   });
 });

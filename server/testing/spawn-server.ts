@@ -16,7 +16,8 @@ export type SpawnedServer = {
 
 /**
  * Boot `server.ts` in a child process on a free port (PORT=0) and wait for
- * its "listening" line. Runs Next in dev mode, so no build is needed.
+ * its "listening" line. Runs Next in dev mode, so no build is needed. Uses
+ * `.next-test` as Next's build directory so it can run next to `npm run dev`.
  */
 export async function spawnServer(
   env: Record<string, string> = {},
@@ -30,6 +31,7 @@ export async function spawnServer(
       PORT: "0",
       HOST: "127.0.0.1",
       NEXT_TELEMETRY_DISABLED: "1",
+      NEXT_DIST_DIR: ".next-test",
       ...env,
     },
     stdio: ["ignore", "pipe", "pipe"],
