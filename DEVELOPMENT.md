@@ -13,7 +13,7 @@ The order puts the risky part first: sync is built and measured before the edito
 | 2 | Participant page: join, seat, ready | 1. Join and standby | 1 | [x] |
 | 3 | Host screen: QR code and live dots | 1. Join and standby | 1 | [x] |
 | 4 | `ClockSync` and the handshake | 2. Sync | 2 | [x] |
-| 5 | Start, stop, and rAF playback | 2. Sync | 3, 4 | [ ] |
+| 5 | Start, stop, and rAF playback | 2. Sync | 3, 4 | [x] |
 | 6 | Simulated-client harness | 2. Sync | 5 | [ ] |
 | 7 | Playwright browser sync test | 2. Sync | 5 | [ ] |
 | 8 | Schedule compiler: fill, polygons, layers | 3. Schedule compiler | 1 | [x] |

@@ -297,6 +297,49 @@ describe("host page", () => {
     }
   });
 
+  it("Start reaches a real ParticipantClient with the host's T0, and Stop clears it", async () => {
+    const hostDeps = nodeHostDeps(server.wsUrl);
+    const code = await createHostedSession("test", hostDeps);
+    const host = new HostClient(code, hostDeps);
+    host.start();
+    const { deps } = nodeParticipantDeps(server.wsUrl);
+    const phone = new ParticipantClient(code, deps);
+    phone.start();
+    try {
+      await until(() => host.getSnapshot().session !== null);
+      // Nobody in standby yet: refused.
+      host.startShow();
+      await until(() => host.getSnapshot().lastError !== null);
+      expect(host.getSnapshot().T0).toBeNull();
+
+      await until(() => participantScreen(phone.getSnapshot()) === "seat");
+      phone.setSeat({ x: 0.5, y: 0.5 });
+      phone.ready();
+      await until(() => participantScreen(phone.getSnapshot()) === "standby");
+      await until(() =>
+        host.getSnapshot().participants.some((p) => p.state === "standby"),
+      );
+      expect(host.startShow()).toBe(true);
+      await until(() => phone.getSnapshot().T0 !== null);
+      expect(phone.getSnapshot().T0).toBe(host.getSnapshot().T0);
+      expect(participantScreen(phone.getSnapshot())).toBe("playing");
+      // T0 is START_LEAD_MS (900) ahead of the server clock at Start.
+      const lead = phone.getSnapshot().T0! - phone.clock.serverNow();
+      expect(lead).toBeGreaterThan(500);
+      expect(lead).toBeLessThanOrEqual(900 + 50);
+      await until(() =>
+        host.getSnapshot().participants.some((p) => p.state === "playing"),
+      );
+
+      host.stopShow();
+      await until(() => phone.getSnapshot().T0 === null);
+      expect(participantScreen(phone.getSnapshot())).toBe("standby");
+    } finally {
+      phone.stop();
+      host.stop();
+    }
+  });
+
   it("HostClient without the right token is not the host", async () => {
     const creator = nodeHostDeps(server.wsUrl);
     const code = await createHostedSession("test", creator);

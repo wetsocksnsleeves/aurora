@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { countByState, participantDots, STATE_COLORS } from "./host-map";
+import { SAMPLE_MS, compileSchedule } from "./compile";
+import {
+  countByState,
+  liveDotColor,
+  participantDots,
+  showStatus,
+  STATE_COLORS,
+} from "./host-map";
+import { ScheduleCursor } from "./playback";
 import type { ParticipantSummary } from "./protocol";
+import { TEST_SHOW, TEST_WAVE_SWEEP_MS } from "./test-show";
 
 const p = (
   id: string,
@@ -66,5 +75,48 @@ describe("participantDots", () => {
   it("accepts a colour override", () => {
     const dots = participantDots([p("a", { state: "playing" })], () => "#f0f");
     expect(dots[0]!.color).toBe("#f0f");
+  });
+});
+
+describe("liveDotColor", () => {
+  const summary = (
+    state: ParticipantSummary["state"],
+    x: number | null = 0.3,
+  ): ParticipantSummary => ({
+    id: state,
+    x,
+    y: x === null ? null : 0.5,
+    state,
+    rttMs: null,
+    degraded: false,
+  });
+
+  it("colours playing dots with the show colour and others by state", () => {
+    const flashAt = 0.3 * TEST_WAVE_SWEEP_MS + 100;
+    const colorOf = liveDotColor(TEST_SHOW, flashAt);
+    expect(colorOf(summary("playing"))).toBe("#ffffff");
+    expect(liveDotColor(TEST_SHOW, flashAt + 500)(summary("playing"))).toBe(
+      "#000000",
+    );
+    expect(colorOf(summary("standby"))).toBe(STATE_COLORS.standby);
+    expect(colorOf(summary("syncing"))).toBe(STATE_COLORS.syncing);
+    expect(colorOf(summary("playing", null))).toBe(STATE_COLORS.playing);
+  });
+
+  it("matches what the phone's compiled schedule shows", () => {
+    const seat = { x: 0.7, y: 0.5 };
+    const cursor = new ScheduleCursor(compileSchedule(TEST_SHOW, seat).events);
+    const p = { ...summary("playing"), x: seat.x, y: seat.y };
+    for (let t = 0; t < 6_000; t += SAMPLE_MS) {
+      expect(liveDotColor(TEST_SHOW, t)(p)).toBe(cursor.colorAt(t));
+    }
+  });
+});
+
+describe("showStatus", () => {
+  it("counts down, then shows progress, then over", () => {
+    expect(showStatus(-840, 20_000)).toBe("Starting in 0.8 s");
+    expect(showStatus(65_400, 120_000)).toBe("Playing 1:05 / 2:00");
+    expect(showStatus(20_000, 20_000)).toBe("Show over");
   });
 });

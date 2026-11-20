@@ -89,6 +89,7 @@ function VenueViewImpl({
         <g key={dot.id}>
           <circle
             className={styles.dot}
+            data-dot-id={dot.id}
             cx={dot.x * W}
             cy={dot.y * H}
             r={r}

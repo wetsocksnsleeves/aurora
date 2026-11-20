@@ -7,7 +7,7 @@ import {
 } from "@/lib/protocol";
 import { CLOCK_SYNC } from "@/lib/clock-sync";
 import { FakeTime } from "@/lib/fake-time";
-import { TEST_VENUE } from "@/lib/test-show";
+import { TEST_SHOW, TEST_VENUE } from "@/lib/test-show";
 import {
   HostClient,
   createHostedSession,
@@ -102,6 +102,7 @@ const session: ServerMessage = {
   showId: "test",
   venue: TEST_VENUE,
   T0: null,
+  show: TEST_SHOW,
 };
 
 describe("HostClient", () => {
@@ -162,6 +163,33 @@ describe("HostClient", () => {
     expect(t.sockets).toHaveLength(2);
     t.last().open();
     expect(t.last().sent[0]).toMatchObject({ hostToken: "secret" });
+  });
+
+  it("sends start and stop and tracks T0 and refusals", () => {
+    const t = setup();
+    t.client.start();
+    t.last().open();
+    t.last().receive(session);
+    expect(t.client.startShow()).toBe(true);
+    t.last().receive({
+      type: "error",
+      reason: "no-standby",
+      message: "no participant is in standby yet",
+    });
+    expect(t.client.getSnapshot().lastError).toMatch(/standby/);
+    expect(t.client.getSnapshot().fatal).toBeNull();
+    t.client.startShow();
+    t.last().receive({ type: "start", T0: 9_000 });
+    expect(t.client.getSnapshot()).toMatchObject({
+      T0: 9_000,
+      lastError: null,
+    });
+    t.client.stopShow();
+    t.last().receive({ type: "stop" });
+    expect(t.client.getSnapshot().T0).toBeNull();
+    expect(
+      t.last().sent.filter((m) => m.type === "start" || m.type === "stop"),
+    ).toEqual([{ type: "start" }, { type: "start" }, { type: "stop" }]);
   });
 
   it("runs its own ClockSync over sync messages", () => {

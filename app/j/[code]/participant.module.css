@@ -115,7 +115,10 @@
   color: #fff;
 }
 
+/* Full-viewport colour fill for the show; Playback sets the colour. */
 .playing {
+  position: fixed;
+  inset: 0;
   background: #000;
   cursor: none;
 }

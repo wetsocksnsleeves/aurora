@@ -11,6 +11,7 @@ import {
   type ServerMessage,
 } from "@/lib/protocol";
 import { TEST_SHOW, TEST_SHOW_ID, testSchedule } from "@/lib/test-show";
+import { compileInWorker } from "./compile-pool";
 import type { Point, Show } from "@/lib/types";
 import {
   SessionError,
@@ -31,6 +32,19 @@ export const MAX_CLIENT_MESSAGE_BYTES = 64 * 1024;
 /** Host `participants` updates are throttled to 4 per second (SPEC 5.2). */
 export const PARTICIPANTS_THROTTLE_MS = 250;
 
+/** Lead time from Start to `T0` (SPEC 4.6). Override with `START_LEAD_MS`. */
+export const DEFAULT_START_LEAD_MS = 900;
+
+/** `START_LEAD_MS` from the environment, or the default if unset or invalid. */
+export function startLeadMsFromEnv(
+  env: Record<string, string | undefined> = process.env,
+): number {
+  const raw = env.START_LEAD_MS?.trim();
+  if (!raw) return DEFAULT_START_LEAD_MS;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : DEFAULT_START_LEAD_MS;
+}
+
 export type UpgradeHandler = (
   req: IncomingMessage,
   socket: Duplex,
@@ -50,10 +64,16 @@ export type ShowResolver = (
 ) => Show | undefined | Promise<Show | undefined>;
 
 /**
- * Chunk 1 default: every show plays the hardcoded test wave.
- * Chunk 8 replaces this with `compileSchedule` on a worker thread.
+ * Default: compile the seat's schedule from the show's clips on a worker
+ * thread (SPEC 3.3), so compiles never delay `sync` replies.
  */
-export const defaultComputeSchedule: ScheduleComputer = (show, seat) => ({
+export const defaultComputeSchedule: ScheduleComputer = compileInWorker;
+
+/**
+ * Every show plays the hardcoded test wave, without the compiler. For tests
+ * that want exact, instant schedules.
+ */
+export const testWaveComputeSchedule: ScheduleComputer = (show, seat) => ({
   ...testSchedule(seat),
   durationMs: show.audio.durationMs,
 });
@@ -85,6 +105,10 @@ export type AttachOptions = {
   sweepIntervalMs?: number;
   /** Ping interval; a socket that misses a pong is terminated. Default 15 s. */
   heartbeatMs?: number;
+  /** Start to `T0` lead. Defaults to `startLeadMsFromEnv()`. */
+  startLeadMs?: number;
+  /** Server clock (SPEC 4.1). Defaults to `performance.now`. */
+  now?: () => number;
 };
 
 /**
@@ -179,11 +203,11 @@ type Handlers = { [K in ClientMessageType]: Handler<K> };
  * Extension points for later chunks:
  * - `sync` / `clock` (chunk 4): `onSync` replies with the server clock to
  *   any socket; `onClock` records a participant's ClockSync status.
- * - `start` / `stop` (chunk 5): in `handlers.start` / `handlers.stop`, check
- *   `requireHost`, call `store.startShow` / `store.stopShow`, then
- *   `broadcastToParticipants` and `sendToHosts`.
- * - Schedules (chunk 8): pass `computeSchedule`, or change
- *   `defaultComputeSchedule`.
+ * - `start` / `stop` (chunk 5): host only. `T0 = now + startLeadMs`, stored
+ *   in the session (so `welcome` and host re-attach carry it), broadcast to
+ *   participants and hosts.
+ * - Schedules: `defaultComputeSchedule` compiles on a worker; pass
+ *   `computeSchedule` to replace it.
  * - Shows (chunks 10, 15): pass `resolveShow`, or change `defaultResolveShow`.
  */
 export class WsRouter {
@@ -192,6 +216,8 @@ export class WsRouter {
   private readonly computeSchedule: ScheduleComputer;
   private readonly resolveShow: ShowResolver;
   private readonly throttleMs: number;
+  private readonly startLeadMs: number;
+  private readonly now: () => number;
   /** Host sockets per session code. */
   private readonly hosts = new Map<string, Set<Connection>>();
   /** The current socket of each participant id. */
@@ -211,6 +237,8 @@ export class WsRouter {
     this.resolveShow = options.resolveShow ?? defaultResolveShow;
     this.throttleMs =
       options.participantsThrottleMs ?? PARTICIPANTS_THROTTLE_MS;
+    this.startLeadMs = options.startLeadMs ?? startLeadMsFromEnv();
+    this.now = options.now ?? (() => performance.now());
     this.sweepTimer = setInterval(
       () => this.sweep(),
       options.sweepIntervalMs ?? 5_000,
@@ -363,14 +391,9 @@ export class WsRouter {
     host: (conn, msg) => this.onHost(conn, msg),
     sync: (conn, msg) => this.onSync(conn, msg),
     clock: (conn, msg) => this.onClock(conn, msg),
-    // Chunk 5: start and stop the show (SPEC 4.6).
-    start: (conn) => this.unsupported(conn, "start"),
-    stop: (conn) => this.unsupported(conn, "stop"),
+    start: (conn) => this.onStart(conn),
+    stop: (conn) => this.onStop(conn),
   };
-
-  private unsupported(conn: Connection, type: ClientMessageType): void {
-    this.sendError(conn, "unsupported", `"${type}" is not implemented yet`);
-  }
 
   /**
    * Clock handshake (SPEC 4.2). Replies at once with the server clock, before
@@ -378,7 +401,36 @@ export class WsRouter {
    * socket may ask: participants (also before `join`) and hosts alike.
    */
   private onSync(conn: Connection, msg: MessageOfType<ClientMessage, "sync">) {
-    this.send(conn, { type: "sync", c0: msg.c0, s1: performance.now() });
+    this.send(conn, { type: "sync", c0: msg.c0, s1: this.now() });
+  }
+
+  /**
+   * Host clicked Start (SPEC 4.6). Needs one participant in standby. Every
+   * participant socket gets `start`, ready or not: one that readies later
+   * plays from the current position.
+   */
+  private onStart(conn: Connection) {
+    const session = this.requireHost(conn);
+    if (session.T0 !== null) {
+      throw new SessionError("show-running", "the show is already running");
+    }
+    if (this.store.countByState(session).standby === 0) {
+      throw new SessionError("no-standby", "no participant is in standby yet");
+    }
+    const T0 = this.now() + this.startLeadMs;
+    this.store.startShow(session, T0);
+    this.broadcastToParticipants(session, { type: "start", T0 });
+    this.sendToHosts(session, { type: "start", T0 });
+    this.notifyParticipantsChanged(session);
+  }
+
+  /** Host clicked Stop: clear `T0`; playing participants return to standby. */
+  private onStop(conn: Connection) {
+    const session = this.requireHost(conn);
+    this.store.stopShow(session);
+    this.broadcastToParticipants(session, { type: "stop" });
+    this.sendToHosts(session, { type: "stop" });
+    this.notifyParticipantsChanged(session);
   }
 
   /** The participant's ClockSync status changed (SPEC 4.4). */
@@ -503,6 +555,7 @@ export class WsRouter {
       showId: session.showId,
       venue: session.show.venue,
       T0: session.T0,
+      show: session.show,
       // Only the creating host learns the token; re-attaching hosts have it.
       ...(created ? { hostToken: session.hostToken } : {}),
     });

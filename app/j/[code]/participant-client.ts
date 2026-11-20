@@ -100,8 +100,6 @@ export type ParticipantSnapshot = {
   schedule: ParticipantSchedule | null;
   /** Server-clock start time while a show runs (SPEC 4.6), else null. */
   T0: number | null;
-  /** The host stopped a running show. */
-  showOver: boolean;
   /** `ClockSync` passed its ready gate (SPEC 4.4). Dark until then. */
   clockReady: boolean;
   /** Ready only through the 6 s fallback. */
@@ -119,14 +117,14 @@ export type ParticipantScreen =
   | "seat"
   | "syncing"
   | "standby"
-  | "playing"
-  | "over";
+  /** A show is running (`T0` set): the Playback fill, which also shows
+   * "Show over" after `durationMs`. */
+  | "playing";
 
 export function participantScreen(s: ParticipantSnapshot): ParticipantScreen {
   if (s.fatal === "unknown-session") return "not-found";
   if (s.fatal === "replaced") return "replaced";
   if (!s.welcomed || !s.venue) return "connecting";
-  if (s.showOver) return "over";
   if (!s.readyTapped || !s.seat) return "seat";
   if (!s.schedule) return "syncing";
   // While a show runs the playback screen paints black until the clock is
@@ -205,7 +203,6 @@ export class ParticipantClient {
       readyTapped: false,
       schedule: null,
       T0: null,
-      showOver: false,
       clockReady: false,
       clockDegraded: false,
       fatal: null,
@@ -420,11 +417,11 @@ export class ParticipantClient {
         });
         return;
       case "start":
-        this.update({ T0: message.T0, showOver: false });
+        this.update({ T0: message.T0 });
         return;
       case "stop":
-        // Chunk 5 may refine this (for example, "over" only at the end).
-        this.update({ T0: null, showOver: this.snapshot.T0 !== null });
+        // Back to standby, ready for another start.
+        this.update({ T0: null });
         return;
       case "error":
         if (message.reason === "unknown-session") {

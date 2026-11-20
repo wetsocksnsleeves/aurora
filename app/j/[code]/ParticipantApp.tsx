@@ -18,6 +18,7 @@ import {
   participantScreen,
   type ParticipantSnapshot,
 } from "./participant-client";
+import { Playback } from "./Playback";
 import styles from "./participant.module.css";
 
 /**
@@ -142,18 +143,15 @@ export function ParticipantApp({ code }: { code: string }) {
         </main>
       );
     case "playing":
-      // Chunk 5 paints the schedule colours here.
       return (
-        <main
-          className={`${styles.page} ${styles.playing}`}
-          data-screen="playing"
+        <Playback
+          client={client}
+          overMessage={
+            <Message screen="over" title="Show over">
+              Thanks for being part of it.
+            </Message>
+          }
         />
-      );
-    case "over":
-      return (
-        <Message screen={screen} title="Show over">
-          Thanks for being part of it.
-        </Message>
       );
   }
 }

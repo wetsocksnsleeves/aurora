@@ -2,22 +2,35 @@
 
 import Link from "next/link";
 import QRCode from "qrcode";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type RefObject,
+} from "react";
 import { VenueView } from "@/components/venue/VenueView";
+import { showDurationMs } from "@/lib/compile";
 import {
   STATE_COLORS,
   STATE_LABELS,
   countByState,
+  liveDotColor,
   participantDots,
+  showStatus,
 } from "@/lib/host-map";
-import { PARTICIPANT_STATES } from "@/lib/types";
+import type { ParticipantSummary } from "@/lib/protocol";
+import { PARTICIPANT_STATES, type Show } from "@/lib/types";
 import { HostClient, browserHostDeps } from "../../host-client";
 import styles from "./host.module.css";
 
 /**
  * Host screen (SPEC 2.2): the venue with one dot per participant coloured by
- * state (5.3), a QR code for the join URL, the code as text, and counts per
- * state. Start/Stop arrive in chunk 5.
+ * state (5.3), a QR code for the join URL, the code as text, counts per
+ * state, and Start/Stop. While a show runs, playing dots take the colour the
+ * phone shows (`colorAt` on the session's show snapshot at the host's own
+ * `serverNow() - T0`), repainted every animation frame.
  */
 export function HostApp({ code }: { code: string }) {
   const [client] = useState(() => new HostClient(code, browserHostDeps));
@@ -40,9 +53,30 @@ export function HostApp({ code }: { code: string }) {
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [client]);
 
-  const { session, participants, fatal, connection } = snapshot;
-  const dots = useMemo(() => participantDots(participants), [participants]);
+  const { session, participants, fatal, connection, T0, clockReady } = snapshot;
+  const show = session?.show ?? null;
+  const live = show !== null && T0 !== null && clockReady;
+  const dots = useMemo(
+    () =>
+      participantDots(
+        participants,
+        // Colour at render time too, so a participants update does not
+        // flash the state colour for a frame before the loop repaints.
+        live ? liveDotColor(show, client.clock.serverNow() - T0) : undefined,
+      ),
+    [participants, live, show, T0, client],
+  );
   const counts = useMemo(() => countByState(participants), [participants]);
+  const mapRef = useRef<HTMLElement>(null);
+  const statusRef = useRef<HTMLParagraphElement>(null);
+  useLiveColors(
+    mapRef,
+    statusRef,
+    client,
+    participants,
+    live ? show : null,
+    T0,
+  );
   const qr = useQrSvg(session?.joinUrl ?? null);
 
   if (fatal) {
@@ -65,7 +99,7 @@ export function HostApp({ code }: { code: string }) {
 
   return (
     <main className={styles.layout}>
-      <section className={styles.mapPanel} aria-label="Venue map">
+      <section className={styles.mapPanel} aria-label="Venue map" ref={mapRef}>
         {session ? (
           <VenueView
             venue={session.venue}
@@ -91,6 +125,43 @@ export function HostApp({ code }: { code: string }) {
         <p className={styles.code} aria-label="Join code">
           {code}
         </p>
+
+        <div className={styles.controls}>
+          {T0 === null ? (
+            <button
+              type="button"
+              className={styles.start}
+              disabled={connection !== "open" || counts.standby === 0}
+              onClick={() => client.startShow()}
+            >
+              Start
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={styles.stop}
+              disabled={connection !== "open"}
+              onClick={() => client.stopShow()}
+            >
+              Stop
+            </button>
+          )}
+          {T0 === null ? (
+            <p className={styles.showStatus}>
+              {counts.standby === 0
+                ? "Start is enabled once a phone is ready."
+                : `${counts.standby} ready`}
+            </p>
+          ) : (
+            // Filled by useLiveColors every frame; React leaves it empty.
+            <p className={styles.showStatus} ref={statusRef} />
+          )}
+          {snapshot.lastError ? (
+            <p className={styles.error} role="alert">
+              {snapshot.lastError}
+            </p>
+          ) : null}
+        </div>
 
         <ul className={styles.counts}>
           {PARTICIPANT_STATES.map((state) => (
@@ -124,6 +195,52 @@ export function HostApp({ code }: { code: string }) {
       </aside>
     </main>
   );
+}
+
+/**
+ * While `show` is set (a show runs and the host clock is ready), repaint
+ * playing dots with their current show colour and update the status line,
+ * every animation frame. Writes `fill` on the SVG circles directly: 500 dots
+ * through React state at 60 fps would re-render the whole map every frame.
+ */
+function useLiveColors(
+  mapRef: RefObject<HTMLElement | null>,
+  statusRef: RefObject<HTMLElement | null>,
+  client: HostClient,
+  participants: readonly ParticipantSummary[],
+  show: Show | null,
+  T0: number | null,
+) {
+  useEffect(() => {
+    if (!show || T0 === null) return;
+    const durationMs = showDurationMs(show);
+    const circles = new Map<string, SVGCircleElement>();
+    mapRef.current
+      ?.querySelectorAll<SVGCircleElement>("circle[data-dot-id]")
+      .forEach((el) => circles.set(el.dataset.dotId ?? "", el));
+    const playing = participants.filter(
+      (p) => p.state === "playing" && circles.has(p.id),
+    );
+    let raf = 0;
+    let lastStatus = "";
+    const render = () => {
+      raf = requestAnimationFrame(render);
+      const showMs = client.clock.serverNow() - T0;
+      const colorOf = liveDotColor(show, showMs);
+      for (const p of playing) {
+        const el = circles.get(p.id)!;
+        const color = colorOf(p);
+        if (el.getAttribute("fill") !== color) el.setAttribute("fill", color);
+      }
+      const status = showStatus(showMs, durationMs);
+      if (status !== lastStatus && statusRef.current) {
+        statusRef.current.textContent = status;
+        lastStatus = status;
+      }
+    };
+    raf = requestAnimationFrame(render);
+    return () => cancelAnimationFrame(raf);
+  }, [mapRef, statusRef, client, participants, show, T0]);
 }
 
 /** The QR code for `text` as an SVG data URL, or null while rendering. */

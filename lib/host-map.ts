@@ -1,5 +1,6 @@
+import { colorAt } from "./compile";
 import type { ParticipantSummary } from "./protocol";
-import { PARTICIPANT_STATES, type ParticipantState } from "./types";
+import { PARTICIPANT_STATES, type ParticipantState, type Show } from "./types";
 
 /**
  * Pure helpers for the host map (SPEC 2.2, 5.3): dot colours by state,
@@ -12,7 +13,7 @@ export const STATE_COLORS: Record<ParticipantState, string> = {
   seated: "#facc15", // yellow
   syncing: "#3b82f6", // blue
   standby: "#22c55e", // green
-  playing: "#22c55e", // green (chunk 5 may use the live show colour)
+  playing: "#22c55e", // green; `liveDotColor` shows the show colour instead
   disconnected: "#ef4444", // red
 };
 
@@ -68,4 +69,34 @@ export function participantDots(
     });
   }
   return dots;
+}
+
+/**
+ * `colorOf` for `participantDots` while a show runs: a playing participant's
+ * dot shows the colour its phone shows at `showMs` (`colorAt` on the show
+ * snapshot), everyone else keeps their state colour. Cheap enough to call for
+ * every dot on every frame.
+ */
+export function liveDotColor(
+  show: Show,
+  showMs: number,
+): (p: ParticipantSummary) => string {
+  return (p) =>
+    p.state === "playing" && p.x !== null && p.y !== null
+      ? colorAt(show, { x: p.x, y: p.y }, showMs)
+      : STATE_COLORS[p.state];
+}
+
+/** Host status line while a show is scheduled or running. */
+export function showStatus(showMs: number, durationMs: number): string {
+  if (showMs < 0) return `Starting in ${(-showMs / 1000).toFixed(1)} s`;
+  if (showMs >= durationMs) return "Show over";
+  return `Playing ${clockText(showMs)} / ${clockText(durationMs)}`;
+}
+
+function clockText(ms: number): string {
+  const total = Math.floor(ms / 1000);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
