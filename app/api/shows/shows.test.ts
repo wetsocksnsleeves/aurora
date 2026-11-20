@@ -67,6 +67,8 @@ describe("/api/shows", () => {
   it("lists shows, most recently updated first", async () => {
     const a = await create({ name: "A" });
     const b = await create({ name: "B" });
+    // Timestamps have millisecond resolution; make the update strictly later.
+    await new Promise((resolve) => setTimeout(resolve, 5));
     await item.PUT(jsonRequest("PUT", { name: "A2" }), ctx(a.id));
 
     const res = collection.GET(jsonRequest("GET"));
@@ -233,6 +235,8 @@ describe("/api/shows", () => {
       { "sec-fetch-site": "same-site" },
       { origin: "https://evil.example", host: "localhost:3000" },
       { origin: "null", host: "localhost:3000" },
+      { origin: "http://localhost:3001", host: "localhost:3000" },
+      { origin: "https://localhost:3000", host: "localhost:3000" },
     ];
     for (const extra of crossSite) {
       const headers = { "content-type": "application/json", ...extra };
