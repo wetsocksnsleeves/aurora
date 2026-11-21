@@ -235,12 +235,12 @@ The host page runs the same `ClockSync` against the server. It starts an `AudioB
 
 | Constraint | Handling |
 | --- | --- |
-| Screen sleeps | Screen Wake Lock API after the Ready tap. Requires HTTPS. Show a "keep your screen on" hint if unavailable. |
-| Fullscreen | Fullscreen API on Android. iPhone Safari has no element fullscreen, so use a black full-viewport page. |
+| Screen sleeps | Screen Wake Lock API after the Ready tap. Requires HTTPS. Where it is missing or refused (plain-HTTP LAN links), play a tiny muted looping video (`public/keep-awake.mp4`) instead. Retake on return to visible and on every tap. Show a "keep your screen on" hint if both fail. |
+| Fullscreen | Fullscreen API on Android. Leaving fullscreen needs no permission, and re-entering needs a tap, so after Ready any tap re-enters it and standby shows "Tap the screen to go fullscreen". iPhone Safari has no element fullscreen, so use a black full-viewport page. |
 | Low power mode | iOS caps rAF at 30 fps, which adds up to 33 ms. Accept it. |
 | Backgrounded tab | rAF stops and the clock state is stale. On return, clear samples, burst, stay dark until ready again. |
 | Display latency | Phones differ by 1 to 3 display frames (16 to 50 ms). This cannot be corrected. |
-| Brightness | Browsers cannot set screen brightness. The ready screen tells participants to turn it up. |
+| Brightness | Browsers can neither set nor read screen brightness. The ready screen tells participants to turn it up. |
 
 ## 5. Architecture and protocol
 

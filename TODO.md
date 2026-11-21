@@ -8,16 +8,18 @@
 
 host:
 
-- [ ] auto build lightshows by analysing audio waveform
+- [ ] auto build lightshows by analysing audio waveform (etao)
 - [ ] import/export
 - [ ] UI refinement, complete redesign
-- [ ] better venue drawing (etao)
+- [ ] better venue drawing (willy)
   - Import an image as background
   - Single pen tool for drawing, remove redundant shapes
   - Consider minimising the drawing tools, making light shows easier to create
 
 client:
+
 - [x] auto positioning
-- [ ] brightness enforcement
-- [ ] fullscreen enforcement? might not be possible
-- [x] better UI / call to actions (etao)
+- [x] brightness enforcement: not possible, browsers cannot set or read brightness (etao)
+- [x] fullscreen enforcement: any tap re-enters fullscreen (Android only; iPhone has no fullscreen)
+- [x] sleep prevention fallback: muted looping video where wake lock is unavailable
+- [x] better UI / call to actions (willy)
