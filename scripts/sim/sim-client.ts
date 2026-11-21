@@ -1,6 +1,7 @@
 import type { ClockSyncEnv } from "@/lib/clock-sync";
 import type { KeyValueStorage } from "@/lib/client-socket";
 import { ScheduleCursor, eventIndexAt, playbackFrame } from "@/lib/playback";
+import { STATE_COLORS } from "@/lib/host-map";
 import type { Point, ScheduleEvent, Venue } from "@/lib/types";
 import {
   DEFAULT_CONNECT_DELAY_MAX_MS,
@@ -49,6 +50,9 @@ export class SimClient {
   skipped = 0;
   /** The page reached "show over". */
   over = false;
+
+  /** Colour of the last playback frame once a show has started, else null. */
+  private playColor: string | null = null;
 
   private cursor: ScheduleCursor | null = null;
   private cursorEvents: readonly ScheduleEvent[] | null = null;
@@ -126,6 +130,10 @@ export class SimClient {
     this.socket?.drop();
   }
 
+  get venue(): Venue | null {
+    return this.client.getSnapshot().venue ?? null;
+  }
+
   get standby(): boolean {
     const s = this.client.getSnapshot();
     return s.readyTapped && s.schedule !== null && s.clockReady;
@@ -137,6 +145,22 @@ export class SimClient {
 
   get degraded(): boolean {
     return this.client.getSnapshot().clockDegraded;
+  }
+
+  /**
+   * The colour this phone shows (`#rrggbb`). During playback, what
+   * `playbackFrame` last produced (black when dark or over); before it, the
+   * host-map colour of its state (SPEC 5.3).
+   */
+  get color(): string {
+    if (this.playColor !== null) return this.playColor;
+    const s = this.client.getSnapshot();
+    if (s.connection === "closed" || s.connection === "reconnecting") {
+      return STATE_COLORS.disconnected;
+    }
+    if (!s.seat) return STATE_COLORS.connected;
+    if (!s.readyTapped) return STATE_COLORS.seated;
+    return this.standby ? STATE_COLORS.standby : STATE_COLORS.syncing;
   }
 
   private onChange(): void {
@@ -157,7 +181,11 @@ export class SimClient {
   frame(now: number, serverOffset: number): void {
     if (this.over) return;
     const s = this.client.getSnapshot();
-    if (!s.schedule || s.T0 === null) return;
+    if (!s.schedule || s.T0 === null) {
+      // No show running (or the host pressed Stop): back to state colours.
+      this.playColor = null;
+      return;
+    }
     if (s.schedule.events !== this.cursorEvents) {
       // A resumed client gets its schedule again: same seat, same events,
       // so the recorded index stays valid.
@@ -169,6 +197,7 @@ export class SimClient {
       { clockReady: s.clockReady, T0: s.T0, schedule: s.schedule, serverNow },
       this.cursor,
     );
+    this.playColor = frame.kind === "color" ? frame.color : "#000000";
     const events = s.schedule.events;
     // The show's true start: T0 is on the server clock.
     const trueT0 = s.T0 - serverOffset;

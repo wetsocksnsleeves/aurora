@@ -147,6 +147,15 @@ export function Settings({
               Click track: a beep at each clip start
             </label>
 
+            <a
+              className={styles.link}
+              href="/mock"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open the 3D view
+            </a>
+
             <hr />
             <div className={styles.setting}>
               <span>

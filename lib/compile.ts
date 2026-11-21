@@ -18,7 +18,7 @@ export type CompiledSchedule = Schedule & { durationMs: number };
 /** Points closer than this to a polygon edge count as on the edge. */
 const EDGE_EPSILON = 1e-9;
 
-type Rgb = { r: number; g: number; b: number };
+export type Rgb = { r: number; g: number; b: number };
 
 type PreparedClip = {
   clip: Clip;
@@ -232,7 +232,7 @@ function shade(rgb: Rgb, clip: Clip, tMs: number, level: number): string {
 }
 
 /** Parses `#rgb` or `#rrggbb`. Anything else is treated as black. */
-function parseColor(color: string): Rgb {
+export function parseColor(color: string): Rgb {
   const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim())?.[1];
   if (!hex) return { r: 0, g: 0, b: 0 };
   const full =
