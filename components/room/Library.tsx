@@ -130,6 +130,27 @@ export function Library({
   );
 }
 
+/** The moment in a card's loop where the most dots are lit, for its still. */
+function brightest(show: Show, loopMs: number): number {
+  let best = 0;
+  let bestLevel = -1;
+  for (let t = 0; t < loopMs; t += 40) {
+    let level = 0;
+    for (const p of PREVIEW_DOTS) {
+      const c = colorAt(show, p, t);
+      level +=
+        parseInt(c.slice(1, 3), 16) +
+        parseInt(c.slice(3, 5), 16) +
+        parseInt(c.slice(5, 7), 16);
+    }
+    if (level > bestLevel) {
+      bestLevel = level;
+      best = t;
+    }
+  }
+  return best;
+}
+
 /** Seats for the card previews, the same for every card. */
 const PREVIEW_DOTS = (() => {
   let s = 11;
@@ -153,10 +174,16 @@ function EffectGrid({
 }) {
   const canvases = useRef(new Map<string, HTMLCanvasElement>());
   const store = useEditorStore();
+  /** Start playing a card's effect (hover), or stop and show its still. */
+  const hover = useRef<(id: string | null) => void>(() => {});
 
-  // One loop animates every card: each plays its effect on a few dots.
+  // Each card shows its effect's brightest moment, and plays the effect
+  // only while hovered.
   useEffect(() => {
-    const shows = new Map<string, { show: Show; loopMs: number }>();
+    const shows = new Map<
+      string,
+      { show: Show; loopMs: number; stillMs: number }
+    >();
     for (const effect of EFFECTS) {
       const clip = effectClip(effect.id, {
         clipId: effect.id,
@@ -198,50 +225,63 @@ function EffectGrid({
           : clip;
       if (!drawn) continue;
       const loopMs = Math.min(drawn.endMs, 4200) + 500;
-      shows.set(effect.id, {
-        loopMs,
-        show: {
-          id: effect.id,
-          name: effect.label,
-          venue: { shapes: [] },
-          audio: { fileId: "", durationMs: loopMs },
-          clips: [drawn],
-          createdAt: "",
-          updatedAt: "",
-        },
-      });
+      const show: Show = {
+        id: effect.id,
+        name: effect.label,
+        venue: { shapes: [] },
+        audio: { fileId: "", durationMs: loopMs },
+        clips: [drawn],
+        createdAt: "",
+        updatedAt: "",
+      };
+      shows.set(effect.id, { show, loopMs, stillMs: brightest(show, loopMs) });
     }
-    let raf = 0;
-    let last = 0;
-    const draw = (now: number) => {
-      raf = requestAnimationFrame(draw);
-      if (now - last < 33) return;
-      last = now;
-      for (const [id, canvas] of canvases.current) {
-        const entry = shows.get(id);
-        const ctx = canvas.getContext("2d");
-        if (!entry || !ctx) continue;
-        const dpr = window.devicePixelRatio || 1;
-        const w = canvas.clientWidth;
-        const h = canvas.clientHeight;
-        if (canvas.width !== Math.round(w * dpr)) {
-          canvas.width = Math.round(w * dpr);
-          canvas.height = Math.round(h * dpr);
-        }
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.clearRect(0, 0, w, h);
-        const t = now % entry.loopMs;
-        for (const p of PREVIEW_DOTS) {
-          const c = colorAt(entry.show, p, t);
-          ctx.fillStyle = c === "#000000" ? "#262626" : c;
-          ctx.beginPath();
-          ctx.roundRect(p.x * w - 2.5, p.y * h - 2.5, 5, 5, 1.5);
-          ctx.fill();
-        }
+
+    const paint = (id: string, t: number) => {
+      const canvas = canvases.current.get(id);
+      const entry = shows.get(id);
+      const ctx = canvas?.getContext("2d");
+      if (!canvas || !entry || !ctx) return;
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      if (canvas.width !== Math.round(w * dpr)) {
+        canvas.width = Math.round(w * dpr);
+        canvas.height = Math.round(h * dpr);
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+      for (const p of PREVIEW_DOTS) {
+        const c = colorAt(entry.show, p, t);
+        ctx.fillStyle = c === "#000000" ? "#262626" : c;
+        ctx.beginPath();
+        ctx.roundRect(p.x * w - 2.5, p.y * h - 2.5, 5, 5, 1.5);
+        ctx.fill();
       }
     };
-    raf = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(raf);
+    const still = (id: string) => paint(id, shows.get(id)?.stillMs ?? 0);
+    for (const id of shows.keys()) still(id);
+
+    let raf = 0;
+    let playing: string | null = null;
+    hover.current = (id) => {
+      cancelAnimationFrame(raf);
+      if (playing) still(playing);
+      playing = id;
+      if (!id) return;
+      const entry = shows.get(id);
+      if (!entry) return;
+      const start = performance.now();
+      const frame = (now: number) => {
+        raf = requestAnimationFrame(frame);
+        paint(id, (now - start) % entry.loopMs);
+      };
+      raf = requestAnimationFrame(frame);
+    };
+    return () => {
+      cancelAnimationFrame(raf);
+      hover.current = () => {};
+    };
   }, [color, store]);
 
   return (
@@ -261,6 +301,8 @@ function EffectGrid({
             setDraggingEffect(effect.id);
           }}
           onDragEnd={() => setDraggingEffect(null)}
+          onPointerEnter={() => hover.current(effect.id)}
+          onPointerLeave={() => hover.current(null)}
           onClick={() => onAdd(effect)}
         >
           <canvas
