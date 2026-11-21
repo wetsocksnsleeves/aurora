@@ -582,8 +582,8 @@ export function toSummary(
  */
 export function getSessionStore(): SessionStore {
   const g = globalThis as typeof globalThis & {
-    __auroraSessionStore?: SessionStore;
+    __lightshowSessionStore?: SessionStore;
   };
-  g.__auroraSessionStore ??= new SessionStore();
-  return g.__auroraSessionStore;
+  g.__lightshowSessionStore ??= new SessionStore();
+  return g.__lightshowSessionStore;
 }

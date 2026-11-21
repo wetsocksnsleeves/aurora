@@ -86,7 +86,7 @@ export type HostClientListener = {
 };
 
 export function hostStorageKey(code: string): string {
-  return `aurora.host.${code.toUpperCase()}`;
+  return `lightshow.host.${code.toUpperCase()}`;
 }
 
 export function readHostToken(

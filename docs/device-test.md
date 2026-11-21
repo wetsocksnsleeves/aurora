@@ -39,10 +39,10 @@ Quick tunnels cap a tunnel at 200 in-flight requests. That is fine for 10 phones
 
 ```sh
 cloudflared tunnel login
-cloudflared tunnel create aurora
-cloudflared tunnel route dns aurora aurora.example.com
-cloudflared tunnel run --url http://localhost:3000 aurora
-PORT=3000 PUBLIC_URL=https://aurora.example.com ALLOWED_HOSTS=aurora.example.com npm start
+cloudflared tunnel create lightshow
+cloudflared tunnel route dns lightshow lightshow.example.com
+cloudflared tunnel run --url http://localhost:3000 lightshow
+PORT=3000 PUBLIC_URL=https://lightshow.example.com ALLOWED_HOSTS=lightshow.example.com npm start
 ```
 
 Environment variables (see `.env.example`):

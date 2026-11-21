@@ -59,7 +59,7 @@ describe("isAudioFileId", () => {
     expect(isAudioFileId("0b6f4c1e-2a7d-4b8e-9f00-123456789abc.mp3")).toBe(
       true,
     );
-    expect(isAudioFileId("../aurora.db")).toBe(false);
+    expect(isAudioFileId("../lightshow.db")).toBe(false);
     expect(isAudioFileId("0b6f4c1e-2a7d-4b8e-9f00-123456789abc.exe")).toBe(
       false,
     );

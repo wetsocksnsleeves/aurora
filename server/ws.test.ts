@@ -74,7 +74,7 @@ async function listen(
   wss = attachWebSocketServer(server, {
     nextUpgrade: noop,
     forwardNextUpgrades: true,
-    publicUrl: "https://aurora.example",
+    publicUrl: "https://lightshow.example",
     ...options,
     store,
   });
@@ -168,7 +168,7 @@ describe("message routing", () => {
     host.send({ type: "host", showId: "test" });
     const session = await host.next("session");
     expect(session.code).toMatch(/^[A-HJ-NP-Z2-9]{6}$/);
-    expect(session.joinUrl).toBe(`https://aurora.example/j/${session.code}`);
+    expect(session.joinUrl).toBe(`https://lightshow.example/j/${session.code}`);
     expect(session.showId).toBe("test");
     expect(session.venue.shapes).toHaveLength(1);
     expect(session.T0).toBeNull();

@@ -21,7 +21,7 @@ type Handle = { path: string; db: Database.Database };
 // Next bundles each route handler separately, and dev mode re-evaluates
 // modules on change. Keeping the handle on globalThis means one connection
 // per process instead of one per bundle or per reload.
-const holder = globalThis as typeof globalThis & { __auroraDb?: Handle };
+const holder = globalThis as typeof globalThis & { __lightshowDb?: Handle };
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS shows (
@@ -44,7 +44,7 @@ const SCHEMA = `
 /** Open (or reuse) the database at `dbPath()`, creating the schema on first use. */
 export function getDb(): Database.Database {
   const file = dbPath();
-  const existing = holder.__auroraDb;
+  const existing = holder.__lightshowDb;
   if (existing && existing.path === file && existing.db.open)
     return existing.db;
   if (existing?.db.open) existing.db.close();
@@ -54,15 +54,15 @@ export function getDb(): Database.Database {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA);
-  holder.__auroraDb = { path: file, db };
+  holder.__lightshowDb = { path: file, db };
   return db;
 }
 
 /** Close the shared connection. Tests call this between temp databases. */
 export function closeDb(): void {
-  const existing = holder.__auroraDb;
+  const existing = holder.__lightshowDb;
   if (existing?.db.open) existing.db.close();
-  holder.__auroraDb = undefined;
+  holder.__lightshowDb = undefined;
 }
 
 type ShowRow = {

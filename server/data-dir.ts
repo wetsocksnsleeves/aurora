@@ -6,20 +6,20 @@ import path from "node:path";
 
 /**
  * Root folder for app data: the SQLite file and uploaded audio.
- * `AURORA_DATA_DIR` overrides it, so tests can point at a temp folder.
+ * `LIGHTSHOW_DATA_DIR` overrides it, so tests can point at a temp folder.
  */
 export function dataDir(): string {
   return path.resolve(
-    /*turbopackIgnore: true*/ process.env.AURORA_DATA_DIR ?? "data",
+    /*turbopackIgnore: true*/ process.env.LIGHTSHOW_DATA_DIR ?? "data",
   );
 }
 
-/** `AURORA_DB_PATH` overrides the database file on its own. */
+/** `LIGHTSHOW_DB_PATH` overrides the database file on its own. */
 export function dbPath(): string {
-  const override = process.env.AURORA_DB_PATH;
+  const override = process.env.LIGHTSHOW_DB_PATH;
   return override
     ? path.resolve(/*turbopackIgnore: true*/ override)
-    : path.join(/*turbopackIgnore: true*/ dataDir(), "aurora.db");
+    : path.join(/*turbopackIgnore: true*/ dataDir(), "lightshow.db");
 }
 
 export function audioDir(): string {
