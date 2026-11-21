@@ -82,6 +82,8 @@ export class HostAudio {
   private loadedUrl: string | null = null;
   private loadToken = 0;
   private run: Run | null = null;
+  /** Where the show's sound also goes while it's being recorded. */
+  private tap: MediaStreamAudioDestinationNode | null = null;
   private snapshot: HostAudioSnapshot = {
     load: { kind: "none" },
     context: "none",
@@ -175,6 +177,7 @@ export class HostAudio {
     };
     const gain = ctx.createGain();
     gain.connect(ctx.destination);
+    if (this.tap) gain.connect(this.tap);
     // Where show end lands on the context clock; nothing plays past it.
     const endS = contextTimeForShowMs(options.showDurationMs, sample);
     const run: Run = {
@@ -226,6 +229,19 @@ export class HostAudio {
     return scheduled;
   }
 
+  /**
+   * The show's sound (track and clicks) as a stream, for recording. Carries
+   * whatever plays from now on, including shows started later.
+   */
+  recordingStream(): MediaStream {
+    const ctx = this.context();
+    if (!this.tap) {
+      this.tap = ctx.createMediaStreamDestination();
+      this.run?.gain.connect(this.tap);
+    }
+    return this.tap.stream;
+  }
+
   /** Stop and drop everything scheduled. */
   stop(): void {
     const run = this.run;
@@ -252,6 +268,7 @@ export class HostAudio {
     this.buffer = null;
     void this.ctx?.close().catch(() => {});
     this.ctx = null;
+    this.tap = null;
     this.update({ load: { kind: "none" }, context: "none" });
   }
 

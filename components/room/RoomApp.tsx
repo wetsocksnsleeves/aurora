@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type RefObject,
 } from "react";
 import {
   HostClient,
@@ -61,6 +62,11 @@ import { ShowControls } from "./ShowControls";
 import { MusicChooserProvider } from "./MusicChooser";
 import { ShowPicker } from "./ShowPicker";
 import { Timeline } from "./timeline/Timeline";
+import { CameraPanel } from "./camera/CameraPanel";
+import { Splitter } from "./Splitter";
+import { usePanels } from "./use-panels";
+import { useCamera } from "./camera/use-camera";
+import { useRecorder, type Recorder } from "./camera/use-recorder";
 import { useDecodedAudio, usePlayback } from "./timeline/playback";
 import { useRoomPointer } from "./use-room-pointer";
 import { useToast } from "./use-toast";
@@ -72,6 +78,9 @@ const wordmark = Space_Grotesk({ subsets: ["latin"], weight: "700" });
 
 /** Edits wait this long before they are saved and sent to the phones. */
 const AUTOSAVE_MS = 800;
+/** The studio grid's outer padding and the gap between panels (px). */
+const STUDIO_PAD = 12;
+const STUDIO_GAP = 12;
 /** A failed save is retried after this long. */
 const RETRY_MS = 3_000;
 
@@ -164,6 +173,24 @@ type RoomProps = {
   clickOn: boolean;
   setClickOn: (on: boolean) => void;
   onNewRoom: () => void;
+  stage: StageShared;
+};
+
+/**
+ * What outlives a show switch: the camera, a recording in progress, and
+ * presenting full screen. Switching shows rebuilds the editor below.
+ */
+type StageShared = {
+  camera: ReturnType<typeof useCamera>;
+  cameraOpen: boolean;
+  setCameraOpen: (open: boolean) => void;
+  recorder: Recorder;
+  /** The room's canvases, whichever show is loaded. */
+  frameRef: RefObject<HTMLDivElement | null>;
+  /** The screen bar's width, for the recording. */
+  screenShareRef: RefObject<number>;
+  presenting: boolean;
+  present: () => void;
 };
 
 function Room({ code, onLost }: { code: string; onLost: () => void }) {
@@ -204,6 +231,57 @@ function Room({ code, onLost }: { code: string; onLost: () => void }) {
   );
   const audio = useHostAudio(client, show, T0, clockReady, clickTimesMs);
 
+  const camera = useCamera();
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const screenShareRef = useRef(0.34);
+  const recorder = useRecorder({
+    room: {
+      frame: () => frameRef.current,
+      screenShare: () => screenShareRef.current,
+    },
+    audio: audio.audio,
+    camera: camera.stream,
+  });
+  const presentRef = useRef<HTMLDivElement>(null);
+  const [presenting, setPresenting] = useState(false);
+  useEffect(() => {
+    const onChange = () =>
+      setPresenting(document.fullscreenElement === presentRef.current);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+  // While presenting, the top bar shows when the mouse moves, then hides.
+  const [awake, setAwake] = useState(false);
+  useEffect(() => {
+    if (!presenting) return;
+    let timer = 0;
+    const wake = () => {
+      setAwake(true);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setAwake(false), 2500);
+    };
+    window.addEventListener("pointermove", wake);
+    return () => {
+      window.removeEventListener("pointermove", wake);
+      window.clearTimeout(timer);
+    };
+  }, [presenting]);
+  const stage: StageShared = {
+    camera,
+    cameraOpen,
+    setCameraOpen,
+    recorder,
+    frameRef,
+    screenShareRef,
+    presenting,
+    /** The room (and camera) full screen, for casting; again to leave. */
+    present: () => {
+      if (document.fullscreenElement) void document.exitFullscreen();
+      else void presentRef.current?.requestFullscreen().catch(() => {});
+    },
+  };
+
   if (!session) {
     return (
       <main className={`${styles.room} ${body.className}`}>
@@ -217,16 +295,24 @@ function Room({ code, onLost }: { code: string; onLost: () => void }) {
     );
   }
   return (
-    <ShowStudio
-      key={session.showId}
-      client={client}
-      snapshot={snapshot}
-      session={session}
-      audio={audio}
-      clickOn={clickOn}
-      setClickOn={setClickChoice}
-      onNewRoom={onLost}
-    />
+    <div
+      ref={presentRef}
+      className={styles.presentRoot}
+      data-presenting={presenting || undefined}
+      data-awake={(presenting && awake) || undefined}
+    >
+      <ShowStudio
+        key={session.showId}
+        client={client}
+        snapshot={snapshot}
+        session={session}
+        audio={audio}
+        clickOn={clickOn}
+        setClickOn={setClickChoice}
+        onNewRoom={onLost}
+        stage={stage}
+      />
+    </div>
   );
 }
 
@@ -253,7 +339,18 @@ function Studio({
   clickOn,
   setClickOn,
   onNewRoom,
+  stage,
 }: RoomProps) {
+  const {
+    camera,
+    cameraOpen,
+    setCameraOpen,
+    recorder,
+    frameRef,
+    screenShareRef,
+    presenting,
+    present,
+  } = stage;
   const store = useEditorStore();
   const readOnly = builtinShow(session.showId) !== undefined;
   const { participants, T0, clockReady, connection } = snapshot;
@@ -263,7 +360,7 @@ function Studio({
   const sync = useShowSync(store, client, session, readOnly, playing);
   const counts = useMemo(() => countByState(participants), [participants]);
   const canvasSize = useRef<Size>({ width: 0, height: 0 });
-  const frameRef = useRef<HTMLDivElement>(null);
+  const panels = usePanels();
   const [toastState, toast] = useToast();
   const fileId = useEditorSelector((s) => s.show.audio.fileId);
   const empty = useEditorSelector((s) => s.show.clips.length === 0);
@@ -368,6 +465,10 @@ function Studio({
   const screenShare = room
     ? Math.min(1, Math.max(0.02, screenM / room.widthM))
     : 0.34;
+  // The recorder reads the screen's width every frame.
+  useEffect(() => {
+    screenShareRef.current = screenShare;
+  }, [screenShare, screenShareRef]);
 
   return (
     <main
@@ -395,6 +496,28 @@ function Studio({
             />
           </div>
           <div className={styles.actions}>
+            <button
+              type="button"
+              className={styles.ghost}
+              aria-pressed={cameraOpen}
+              disabled={cameraOpen && recorder.since !== null}
+              title={
+                cameraOpen && recorder.since !== null
+                  ? "Stop recording first"
+                  : "Film the crowd beside the room, and record both"
+              }
+              onClick={() => {
+                if (cameraOpen) {
+                  camera.close();
+                  setCameraOpen(false);
+                } else {
+                  camera.open();
+                  setCameraOpen(true);
+                }
+              }}
+            >
+              Camera
+            </button>
             <a
               className={styles.ghost}
               href={screenHref}
@@ -427,9 +550,23 @@ function Studio({
           </div>
         </header>
 
-        <div className={styles.studio}>
-          <Library audio={decoded} disabled={locked} toast={toast} />
-          <section className={styles.stage} aria-label="Room">
+        <div
+          className={styles.studio}
+          style={{
+            gridTemplateColumns: `${panels.sizes.left}px minmax(0, 1fr) ${panels.sizes.right}px`,
+            gridTemplateRows: `minmax(0, 1fr) ${panels.sizes.bottom}px`,
+          }}
+        >
+          <div
+            className={panels.sizes.left ? styles.contents : styles.hiddenPanel}
+          >
+            <Library audio={decoded} disabled={locked} toast={toast} />
+          </div>
+          <section
+            className={styles.stage}
+            aria-label="Room"
+            data-camera={cameraOpen || undefined}
+          >
             <div ref={frameRef} className={styles.roomFrame}>
               <VenueCanvas
                 layers={ROOM_LAYERS}
@@ -461,6 +598,29 @@ function Studio({
                 ) : null}
               </VenueCanvas>
             </div>
+            {cameraOpen ? (
+              <CameraPanel
+                camera={camera}
+                recorder={recorder}
+                onPresent={present}
+                presenting={presenting}
+                toast={toast}
+              />
+            ) : null}
+            {!cameraOpen ? (
+              <button
+                type="button"
+                className={styles.presentButton}
+                title={
+                  presenting
+                    ? "Leave full screen (Esc)"
+                    : "Show the room full screen, for casting"
+                }
+                onClick={present}
+              >
+                {presenting ? "Exit" : "Present"}
+              </button>
+            ) : null}
             {drawing && !locked ? (
               <p className={styles.drawHint}>
                 {tool === "brush"
@@ -476,17 +636,63 @@ function Studio({
               </div>
             ) : null}
           </section>
-          <Inspector
-            counts={counts}
-            playing={playing}
-            readOnly={readOnly}
-            toast={toast}
+          <div
+            className={
+              panels.sizes.right ? styles.contents : styles.hiddenPanel
+            }
+          >
+            <Inspector
+              counts={counts}
+              playing={playing}
+              readOnly={readOnly}
+              toast={toast}
+            />
+          </div>
+          <div
+            className={
+              panels.sizes.bottom ? styles.contents : styles.hiddenPanel
+            }
+          >
+            <Timeline
+              audio={decoded}
+              locked={playing}
+              readOnly={readOnly}
+              toast={toast}
+            />
+          </div>
+          {/* Dividers sit in the gaps between the room and the panels. */}
+          <Splitter
+            panel="left"
+            size={panels.sizes.left}
+            style={{
+              left: STUDIO_PAD + panels.sizes.left + STUDIO_GAP / 2,
+              top: 0,
+              bottom: STUDIO_PAD + panels.sizes.bottom + STUDIO_GAP,
+            }}
+            onResize={(px, from) => panels.resize("left", px, from)}
+            onToggle={() => panels.toggle("left")}
           />
-          <Timeline
-            audio={decoded}
-            locked={playing}
-            readOnly={readOnly}
-            toast={toast}
+          <Splitter
+            panel="right"
+            size={panels.sizes.right}
+            style={{
+              right: STUDIO_PAD + panels.sizes.right + STUDIO_GAP / 2,
+              top: 0,
+              bottom: STUDIO_PAD + panels.sizes.bottom + STUDIO_GAP,
+            }}
+            onResize={(px, from) => panels.resize("right", px, from)}
+            onToggle={() => panels.toggle("right")}
+          />
+          <Splitter
+            panel="bottom"
+            size={panels.sizes.bottom}
+            style={{
+              left: STUDIO_PAD,
+              right: STUDIO_PAD,
+              bottom: STUDIO_PAD + panels.sizes.bottom + STUDIO_GAP / 2,
+            }}
+            onResize={(px, from) => panels.resize("bottom", px, from)}
+            onToggle={() => panels.toggle("bottom")}
           />
         </div>
       </MusicChooserProvider>

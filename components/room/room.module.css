@@ -487,13 +487,99 @@
 /* Studio */
 
 .studio {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: grid;
+  /* Columns and rows come from the panel sizes (RoomApp). */
   grid-template-columns: 292px minmax(0, 1fr) 312px;
-  grid-template-rows: minmax(0, 1fr) clamp(240px, 36dvh, 380px);
+  grid-template-rows: minmax(0, 1fr) 300px;
   gap: 12px;
   padding: 0 12px 12px;
+}
+
+/* A panel's wrapper: invisible to the grid, or hiding the panel. */
+.contents {
+  display: contents;
+}
+
+.hiddenPanel {
+  display: none;
+}
+
+/* Fixed places, so hiding a panel leaves the others where they are. */
+.studio > .contents > .library {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.studio > .stage {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.studio > .contents > .side {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.splitter {
+  position: absolute;
+  z-index: 9;
+  display: grid;
+  place-items: center;
+  touch-action: none;
+}
+
+.splitter[data-panel="left"],
+.splitter[data-panel="right"] {
+  width: 12px;
+  transform: translateX(-50%);
+  cursor: col-resize;
+}
+
+.splitter[data-panel="right"] {
+  transform: translateX(50%);
+}
+
+.splitter[data-panel="bottom"] {
+  height: 12px;
+  transform: translateY(50%);
+  cursor: row-resize;
+}
+
+/* A grip that shows on hover. */
+.splitter i {
+  border-radius: 2px;
+  background: rgb(255 255 255 / 0.28);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.splitter[data-panel="left"] i,
+.splitter[data-panel="right"] i {
+  width: 4px;
+  height: 44px;
+}
+
+.splitter[data-panel="bottom"] i {
+  width: 44px;
+  height: 4px;
+}
+
+.splitter:hover i,
+.splitter:active i {
+  opacity: 1;
+}
+
+/* A hidden panel's tab, always visible, to bring it back. */
+.splitter[data-hidden] {
+  cursor: pointer;
+}
+
+.splitter[data-hidden] i {
+  opacity: 1;
+  background: rgb(255 255 255 / 0.4);
 }
 
 /* The side panels: solid raised cards. */
@@ -689,6 +775,264 @@
   position: relative;
   width: min(100cqw, 100cqh);
   aspect-ratio: 1;
+}
+
+/* Camera beside the room: both the same height, side by side. */
+.stage[data-camera] {
+  grid-template-columns: auto auto;
+  justify-content: center;
+  align-content: center;
+  gap: 20px;
+}
+
+.stage[data-camera] .roomFrame {
+  width: min(calc((100cqw - 20px) / 2.7778), 100cqh);
+}
+
+.cameraTile {
+  position: relative;
+  height: min(calc((100cqw - 20px) / 2.7778), 100cqh);
+  aspect-ratio: 16 / 9;
+  border-radius: 24px;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 20px 50px rgb(0 0 0 / 0.45);
+}
+
+.cameraTile[data-recording] {
+  box-shadow:
+    0 0 0 2px #ef4444,
+    0 20px 50px rgb(0 0 0 / 0.45);
+}
+
+.cameraTile video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.cameraMessage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--dim);
+}
+
+.recBadge {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.55);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.recBadge i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 8px #ef4444;
+  animation: blink 1s steps(2, start) infinite;
+}
+
+@keyframes blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+.cameraBar {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 16px;
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+
+.recButton,
+.cameraButton {
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+  background: rgb(255 255 255 / 0.08);
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.recButton:disabled,
+.cameraButton:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.recButton i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ef4444;
+}
+
+.recButton[data-on] {
+  background: #dc2626;
+}
+
+.recButton[data-on] i {
+  border-radius: 2px;
+  background: #fff;
+}
+
+.cameraSelect {
+  height: 32px;
+  max-width: 180px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 10px;
+  background: rgb(255 255 255 / 0.08);
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.cameraBar .spacer {
+  flex: 1;
+}
+
+.takes {
+  position: relative;
+}
+
+.takeList {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 21;
+  width: 300px;
+  max-height: 50cqh;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 16px;
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow);
+}
+
+.take {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.take > span {
+  flex: 1;
+}
+
+.take small {
+  color: var(--dim);
+}
+
+.presentButton {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 10px;
+  background: var(--glass);
+  color: var(--fg);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/*
+ * Present: the room (and camera) alone, full screen, for casting. The
+ * top bar floats in when the mouse moves, so the show can still be
+ * switched; the editor panels hide.
+ */
+.presentRoot[data-presenting] {
+  background: #000;
+}
+
+.presentRoot[data-presenting] .room {
+  height: 100vh;
+  background: #000;
+}
+
+.presentRoot[data-presenting] .bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-8px);
+  transition:
+    opacity 0.25s,
+    transform 0.25s;
+}
+
+.presentRoot[data-presenting][data-awake] .bar,
+.presentRoot[data-presenting] .bar:hover,
+.presentRoot[data-presenting] .bar:has(:focus-visible) {
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+
+.presentRoot[data-presenting] .studio {
+  display: block;
+  padding: 0;
+}
+
+.presentRoot[data-presenting] .studio > :not(.stage) {
+  display: none;
+}
+
+.presentRoot[data-presenting] .stage {
+  position: absolute;
+  inset: 0;
+  padding: 5vh 3vw;
+}
+
+.presentRoot[data-presenting] .toast,
+.presentRoot[data-presenting] .drawHint,
+.presentRoot[data-presenting] .roomSize {
+  display: none;
 }
 
 .canvasFill {
