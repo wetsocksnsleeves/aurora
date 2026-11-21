@@ -4,7 +4,7 @@ import { toPx, type Size } from "./geometry";
 /** Canvas drawing helpers shared by the layers in layers.ts and clip-layers.ts. */
 
 export const COLORS = {
-  background: "#070707",
+  background: "#0e0f0d",
   grid: "rgba(255,255,255,0.05)",
   venueFill: "rgba(74,222,128,0.1)",
   venueStroke: "rgba(74,222,128,0.6)",
