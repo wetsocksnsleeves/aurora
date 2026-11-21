@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type RefObject,
 } from "react";
 import {
   HostClient,
@@ -65,6 +66,7 @@ import { CameraPanel } from "./camera/CameraPanel";
 import { Splitter } from "./Splitter";
 import { usePanels } from "./use-panels";
 import { useCamera } from "./camera/use-camera";
+import { useRecorder, type Recorder } from "./camera/use-recorder";
 import { useDecodedAudio, usePlayback } from "./timeline/playback";
 import { useRoomPointer } from "./use-room-pointer";
 import { useToast } from "./use-toast";
@@ -171,6 +173,24 @@ type RoomProps = {
   clickOn: boolean;
   setClickOn: (on: boolean) => void;
   onNewRoom: () => void;
+  stage: StageShared;
+};
+
+/**
+ * What outlives a show switch: the camera, a recording in progress, and
+ * presenting full screen. Switching shows rebuilds the editor below.
+ */
+type StageShared = {
+  camera: ReturnType<typeof useCamera>;
+  cameraOpen: boolean;
+  setCameraOpen: (open: boolean) => void;
+  recorder: Recorder;
+  /** The room's canvases, whichever show is loaded. */
+  frameRef: RefObject<HTMLDivElement | null>;
+  /** The screen bar's width, for the recording. */
+  screenShareRef: RefObject<number>;
+  presenting: boolean;
+  present: () => void;
 };
 
 function Room({ code, onLost }: { code: string; onLost: () => void }) {
@@ -211,6 +231,57 @@ function Room({ code, onLost }: { code: string; onLost: () => void }) {
   );
   const audio = useHostAudio(client, show, T0, clockReady, clickTimesMs);
 
+  const camera = useCamera();
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const screenShareRef = useRef(0.34);
+  const recorder = useRecorder({
+    room: {
+      frame: () => frameRef.current,
+      screenShare: () => screenShareRef.current,
+    },
+    audio: audio.audio,
+    camera: camera.stream,
+  });
+  const presentRef = useRef<HTMLDivElement>(null);
+  const [presenting, setPresenting] = useState(false);
+  useEffect(() => {
+    const onChange = () =>
+      setPresenting(document.fullscreenElement === presentRef.current);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+  // While presenting, the top bar shows when the mouse moves, then hides.
+  const [awake, setAwake] = useState(false);
+  useEffect(() => {
+    if (!presenting) return;
+    let timer = 0;
+    const wake = () => {
+      setAwake(true);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setAwake(false), 2500);
+    };
+    window.addEventListener("pointermove", wake);
+    return () => {
+      window.removeEventListener("pointermove", wake);
+      window.clearTimeout(timer);
+    };
+  }, [presenting]);
+  const stage: StageShared = {
+    camera,
+    cameraOpen,
+    setCameraOpen,
+    recorder,
+    frameRef,
+    screenShareRef,
+    presenting,
+    /** The room (and camera) full screen, for casting; again to leave. */
+    present: () => {
+      if (document.fullscreenElement) void document.exitFullscreen();
+      else void presentRef.current?.requestFullscreen().catch(() => {});
+    },
+  };
+
   if (!session) {
     return (
       <main className={`${styles.room} ${body.className}`}>
@@ -224,16 +295,24 @@ function Room({ code, onLost }: { code: string; onLost: () => void }) {
     );
   }
   return (
-    <ShowStudio
-      key={session.showId}
-      client={client}
-      snapshot={snapshot}
-      session={session}
-      audio={audio}
-      clickOn={clickOn}
-      setClickOn={setClickChoice}
-      onNewRoom={onLost}
-    />
+    <div
+      ref={presentRef}
+      className={styles.presentRoot}
+      data-presenting={presenting || undefined}
+      data-awake={(presenting && awake) || undefined}
+    >
+      <ShowStudio
+        key={session.showId}
+        client={client}
+        snapshot={snapshot}
+        session={session}
+        audio={audio}
+        clickOn={clickOn}
+        setClickOn={setClickChoice}
+        onNewRoom={onLost}
+        stage={stage}
+      />
+    </div>
   );
 }
 
@@ -260,7 +339,18 @@ function Studio({
   clickOn,
   setClickOn,
   onNewRoom,
+  stage,
 }: RoomProps) {
+  const {
+    camera,
+    cameraOpen,
+    setCameraOpen,
+    recorder,
+    frameRef,
+    screenShareRef,
+    presenting,
+    present,
+  } = stage;
   const store = useEditorStore();
   const readOnly = builtinShow(session.showId) !== undefined;
   const { participants, T0, clockReady, connection } = snapshot;
@@ -270,23 +360,7 @@ function Studio({
   const sync = useShowSync(store, client, session, readOnly, playing);
   const counts = useMemo(() => countByState(participants), [participants]);
   const canvasSize = useRef<Size>({ width: 0, height: 0 });
-  const frameRef = useRef<HTMLDivElement>(null);
-  const stageRef = useRef<HTMLElement>(null);
-  const camera = useCamera();
   const panels = usePanels();
-  const [cameraOpen, setCameraOpen] = useState(false);
-  const [presenting, setPresenting] = useState(false);
-  useEffect(() => {
-    const onChange = () =>
-      setPresenting(document.fullscreenElement === stageRef.current);
-    document.addEventListener("fullscreenchange", onChange);
-    return () => document.removeEventListener("fullscreenchange", onChange);
-  }, []);
-  /** The room (and camera) full screen, for casting; again to leave. */
-  const present = () => {
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else void stageRef.current?.requestFullscreen().catch(() => {});
-  };
   const [toastState, toast] = useToast();
   const fileId = useEditorSelector((s) => s.show.audio.fileId);
   const empty = useEditorSelector((s) => s.show.clips.length === 0);
@@ -392,10 +466,9 @@ function Studio({
     ? Math.min(1, Math.max(0.02, screenM / room.widthM))
     : 0.34;
   // The recorder reads the screen's width every frame.
-  const screenShareRef = useRef(screenShare);
   useEffect(() => {
     screenShareRef.current = screenShare;
-  }, [screenShare]);
+  }, [screenShare, screenShareRef]);
 
   return (
     <main
@@ -427,7 +500,12 @@ function Studio({
               type="button"
               className={styles.ghost}
               aria-pressed={cameraOpen}
-              title="Film the crowd beside the room, and record both"
+              disabled={cameraOpen && recorder.since !== null}
+              title={
+                cameraOpen && recorder.since !== null
+                  ? "Stop recording first"
+                  : "Film the crowd beside the room, and record both"
+              }
               onClick={() => {
                 if (cameraOpen) {
                   camera.close();
@@ -485,7 +563,6 @@ function Studio({
             <Library audio={decoded} disabled={locked} toast={toast} />
           </div>
           <section
-            ref={stageRef}
             className={styles.stage}
             aria-label="Room"
             data-camera={cameraOpen || undefined}
@@ -524,9 +601,7 @@ function Studio({
             {cameraOpen ? (
               <CameraPanel
                 camera={camera}
-                frameRef={frameRef}
-                screenShare={() => screenShareRef.current}
-                audio={audio.audio}
+                recorder={recorder}
                 onPresent={present}
                 presenting={presenting}
                 toast={toast}

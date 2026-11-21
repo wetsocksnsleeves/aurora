@@ -978,15 +978,60 @@
   cursor: pointer;
 }
 
-/* Present: the room (and camera) alone, full screen, for casting. */
-.stage:fullscreen {
+/*
+ * Present: the room (and camera) alone, full screen, for casting. The
+ * top bar floats in when the mouse moves, so the show can still be
+ * switched; the editor panels hide.
+ */
+.presentRoot[data-presenting] {
   background: #000;
-  padding: 4vh 3vw;
 }
 
-.stage:fullscreen .toast,
-.stage:fullscreen .drawHint,
-.stage:fullscreen .roomSize {
+.presentRoot[data-presenting] .room {
+  height: 100vh;
+  background: #000;
+}
+
+.presentRoot[data-presenting] .bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-8px);
+  transition:
+    opacity 0.25s,
+    transform 0.25s;
+}
+
+.presentRoot[data-presenting][data-awake] .bar,
+.presentRoot[data-presenting] .bar:hover,
+.presentRoot[data-presenting] .bar:has(:focus-visible) {
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+
+.presentRoot[data-presenting] .studio {
+  display: block;
+  padding: 0;
+}
+
+.presentRoot[data-presenting] .studio > :not(.stage) {
+  display: none;
+}
+
+.presentRoot[data-presenting] .stage {
+  position: absolute;
+  inset: 0;
+  padding: 5vh 3vw;
+}
+
+.presentRoot[data-presenting] .toast,
+.presentRoot[data-presenting] .drawHint,
+.presentRoot[data-presenting] .roomSize {
   display: none;
 }
 

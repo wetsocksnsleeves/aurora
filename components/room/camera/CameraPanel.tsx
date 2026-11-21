@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Toast } from "../edit-actions";
-import type { HostAudio } from "../host-audio";
 import styles from "../room.module.css";
-import { startRecording, type Take } from "./recorder";
 import type { useCamera } from "./use-camera";
+import type { Recorder } from "./use-recorder";
 
 function clock(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -14,35 +13,29 @@ function clock(ms: number): string {
 
 /**
  * The camera beside the room: a live view to film the crowd with, and
- * Record, which films the camera and the room view together and offers
- * both files to download when it stops.
+ * Record, which films the camera and the room view together and downloads
+ * both when it stops. The recording itself lives above the editor
+ * (`useRecorder`), so switching shows doesn't stop it.
  */
 export function CameraPanel({
   camera,
-  frameRef,
-  screenShare,
-  audio,
+  recorder,
   onPresent,
   presenting,
   toast,
 }: {
   camera: ReturnType<typeof useCamera>;
-  frameRef: RefObject<HTMLElement | null>;
-  screenShare: () => number;
-  audio: HostAudio;
+  recorder: Recorder;
   onPresent: () => void;
   presenting: boolean;
   toast: Toast;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [recording, setRecording] = useState<{
-    stop: () => Promise<Take>;
-    since: number;
-  } | null>(null);
-  const [elapsed, setElapsed] = useState(0);
-  const [takes, setTakes] = useState<Take[]>([]);
-  const [saving, setSaving] = useState(false);
+  const [now, setNow] = useState(0);
   const [listOpen, setListOpen] = useState(false);
+  const { since, saving, takes } = recorder;
+  const recording = since !== null;
+  const elapsed = recording ? Math.max(0, now - since) : 0;
 
   useEffect(() => {
     const video = videoRef.current;
@@ -54,68 +47,43 @@ export function CameraPanel({
 
   useEffect(() => {
     if (!recording) return;
-    const timer = setInterval(
-      () => setElapsed(performance.now() - recording.since),
-      250,
-    );
+    const tick = () => setNow(performance.now());
+    tick();
+    const timer = setInterval(tick, 250);
     return () => clearInterval(timer);
   }, [recording]);
 
-  // Free the recordings' memory when the panel goes.
-  const takesRef = useRef(takes);
+  // Close the list on a click outside it, or Esc. (A full-screen click
+  // catcher can't be used here: the bar's blur traps it inside the bar.)
+  const takesRef = useRef<HTMLSpanElement>(null);
   useEffect(() => {
-    takesRef.current = takes;
-  }, [takes]);
-  useEffect(
-    () => () => {
-      for (const take of takesRef.current) {
-        for (const f of take.files) URL.revokeObjectURL(f.url);
-      }
-    },
-    [],
-  );
+    if (!listOpen) return;
+    const onDown = (e: PointerEvent) => {
+      if (!takesRef.current?.contains(e.target as Node)) setListOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setListOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [listOpen]);
 
   const record = () => {
-    const frame = frameRef.current;
-    if (!frame) return;
-    let music: MediaStream | null = null;
-    try {
-      music = audio.recordingStream();
-    } catch {
-      music = null;
-    }
-    const run = startRecording({
-      room: { frame, screenShare },
-      camera: camera.stream,
-      music,
-    });
-    setElapsed(0);
-    setRecording({ stop: run.stop, since: performance.now() });
+    recorder.start();
     toast("Recording the camera and the room");
   };
 
   const stop = async () => {
-    if (!recording) return;
-    setSaving(true);
-    try {
-      const take = await recording.stop();
-      setTakes((t) => [take, ...t]);
+    const take = await recorder.stop();
+    if (take) {
       setListOpen(true);
-      toast(`Saved ${clock(take.durationMs)} of video, ready to download`);
-    } finally {
-      setRecording(null);
-      setSaving(false);
+      toast(`Saved ${clock(take.durationMs)}: both files are downloading`);
     }
   };
-
-  // Stop cleanly if the camera is closed mid-recording.
-  const stopRef = useRef(stop);
-  useEffect(() => {
-    stopRef.current = stop;
-  });
-  useEffect(() => {
-    if (!camera.stream && recording) void stopRef.current();
-  }, [camera.stream, recording]);
 
   return (
     <div
@@ -151,12 +119,12 @@ export function CameraPanel({
           <button
             type="button"
             className={styles.recButton}
-            disabled={!camera.stream}
+            disabled={!camera.stream || saving}
             title="Record the camera and the room together"
             onClick={record}
           >
             <i aria-hidden />
-            Record
+            {saving ? "Saving…" : "Record"}
           </button>
         )}
         {camera.devices.length > 1 && !recording ? (
@@ -175,7 +143,7 @@ export function CameraPanel({
         ) : null}
         <span className={styles.spacer} />
         {takes.length ? (
-          <span className={styles.takes}>
+          <span className={styles.takes} ref={takesRef}>
             <button
               type="button"
               className={styles.cameraButton}
@@ -186,10 +154,6 @@ export function CameraPanel({
             </button>
             {listOpen ? (
               <>
-                <div
-                  className={styles.backdrop}
-                  onClick={() => setListOpen(false)}
-                />
                 <div
                   className={styles.takeList}
                   role="dialog"
@@ -238,7 +202,7 @@ export function CameraPanel({
             type="button"
             className={styles.cameraButton}
             aria-label="Close the camera"
-            disabled={!!recording}
+            disabled={recording}
             title={recording ? "Stop recording first" : "Close the camera"}
             onClick={camera.close}
           >

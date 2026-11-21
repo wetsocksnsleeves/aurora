@@ -41,8 +41,11 @@ const ROOM_PX = 1080;
 const FPS = 30;
 
 export type RoomSource = {
-  /** The element holding the room's canvases. */
-  frame: HTMLElement;
+  /**
+   * The element holding the room's canvases. Asked every frame: switching
+   * shows rebuilds the room, and the recording follows it.
+   */
+  frame: () => HTMLElement | null;
   /** Width of the screen bar as a share of the room (to scale). */
   screenShare: () => number;
 };
@@ -66,7 +69,7 @@ function roomCompositor(room: RoomSource): {
     raf = requestAnimationFrame(draw);
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, ROOM_PX, ROOM_PX);
-    for (const layer of room.frame.querySelectorAll("canvas")) {
+    for (const layer of room.frame()?.querySelectorAll("canvas") ?? []) {
       if (layer.width > 0 && layer.height > 0) {
         ctx.drawImage(layer, 0, 0, ROOM_PX, ROOM_PX);
       }
