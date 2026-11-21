@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { PHONK_AUDIO_FILE_ID } from "@/lib/phonk-show";
 import { audioDir } from "./data-dir";
 
 /** Accepted upload formats (SPEC 2.1) and the content type each is served with. */
@@ -56,9 +57,16 @@ export function contentTypeFor(fileId: string): string {
     : "application/octet-stream";
 }
 
+/** Audio shipped with the app for built-in shows, by file id. Paths are relative to the working directory. */
+const BUILTIN_AUDIO: Record<string, string> = {
+  [PHONK_AUDIO_FILE_ID]: "public/builtin-audio/phonk-da-favelada.mp3",
+};
+
 export function audioFilePath(fileId: string): string {
   if (!isAudioFileId(fileId))
     throw new Error(`invalid audio file id: ${fileId}`);
+  const bundled = BUILTIN_AUDIO[fileId];
+  if (bundled) return path.resolve(/*turbopackIgnore: true*/ bundled);
   return path.join(/*turbopackIgnore: true*/ audioDir(), fileId);
 }
 

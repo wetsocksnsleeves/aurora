@@ -1,4 +1,5 @@
 import { DEVICE_TEST_SHOW } from "./device-test-show";
+import { PHONK_SHOW } from "./phonk-show";
 import { TEST_SHOW } from "./test-show";
 import type { Show } from "./types";
 
@@ -25,6 +26,11 @@ export const BUILTIN_SHOWS: readonly BuiltinShow[] = [
     show: DEVICE_TEST_SHOW,
     note: "Full-venue white flash every second for 60 s. For filming phones (docs/device-test.md).",
     clickTrack: true,
+  },
+  {
+    show: PHONK_SHOW,
+    note: "2KE, PHONK DA FAVELADA. Lights generated from the beat, with audio.",
+    clickTrack: false,
   },
 ];
 
