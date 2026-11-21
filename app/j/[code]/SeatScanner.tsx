@@ -27,6 +27,7 @@ import {
   FrameGrabber,
   followMotion,
   openRearCamera,
+  plausibleFov,
   rememberLens,
   rememberedLens,
   type Lens,
@@ -43,6 +44,23 @@ const GUIDE_HOLD_MS = 700;
 const GUIDE_STEPS = 3;
 /** How close (fraction of the view's width) counts as in the box. */
 const GUIDE_TOLERANCE = 0.06;
+/**
+ * A screen missed for less than this (a blurred or badly lit frame) still
+ * counts as seen: the box and the hold carry on instead of blinking.
+ */
+const MISS_GRACE_MS = 250;
+/** Only after this long without the screen does the hint say it's lost. */
+const LOST_MS = 600;
+/** Once in the box, the screen stays "in" until this much further out. */
+const GUIDE_EXIT_TOLERANCE = 0.09;
+/**
+ * Still enough to count a hold: the screen moving less than this share of
+ * the view's width per second. Judged from the picture, as Android motion
+ * sensors are noisy.
+ */
+const STILL_VIEW_PER_SEC = 0.12;
+/** A turn this fast (degrees per second) is never still. */
+const MOVING_DPS = 15;
 /** Rough camera-to-callback delay when the browser doesn't report it. */
 const FRAME_LATENCY_MS = 40;
 /**
@@ -84,6 +102,9 @@ export function SeatScanner({
   // Which way to turn the phone: -1 left, 1 right, 0 none (held, or lost).
   const [turn, setTurn] = useState<-1 | 0 | 1>(0);
   const [error, setError] = useState<string | null>(null);
+  // The camera fades in once its first frames are steady, not mid-start.
+  const [videoReady, setVideoReady] = useState(false);
+  const [debug, setDebug] = useState<string | null>(null);
   const finishRef = useRef<() => void>(() => {});
 
   // The scan runs once per mount; read the latest props through a ref.
@@ -97,6 +118,15 @@ export function SeatScanner({
     if (!video) return;
     let stopped = false;
     let stream: MediaStream | null = null;
+    let cameraLabel = "";
+    // `?debug` shows what the scanner sees, for checking a phone by eye.
+    const debugOn = new URLSearchParams(window.location.search).has("debug");
+    let frames = 0;
+    let hits = 0;
+    let lastDebugAt = 0;
+    let lastSeen: { found: Detection; at: number } | null = null;
+    let lastTarget: { x: number; y: number; at: number } | null = null;
+    let inBoxBefore = false;
     let stopMotion = () => {};
     const detector = new Detector();
     const grabber = new FrameGrabber();
@@ -130,7 +160,12 @@ export function SeatScanner({
       if (measured && !plausibleFov(measured.fov)) measured = null;
       const final = measured ?? lens;
       if (measured && video.videoWidth) {
-        rememberLens(video.videoWidth, video.videoHeight, measured.fov);
+        rememberLens(
+          cameraLabel,
+          video.videoWidth,
+          video.videoHeight,
+          measured.fov,
+        );
       }
       const pose = combine(samples, final.fov);
       if (!pose) {
@@ -156,6 +191,7 @@ export function SeatScanner({
       guideZone = 0;
       guideOffset = 0;
       holdMs = 0;
+      inBoxBefore = false;
       setSweeping(true);
       setGuideStep(0);
       setProgress(0);
@@ -168,6 +204,7 @@ export function SeatScanner({
       found: Detection,
       view: ViewMap,
       dt: number,
+      fresh: boolean,
     ): Guide | null => {
       const t = targetOnView(found, view);
       if (!t) return null;
@@ -183,9 +220,31 @@ export function SeatScanner({
       }
       const side = guideZone % 2 === 0 ? -1 : 1;
       const boxX = view.cw * (0.5 + side * guideOffset);
-      const inBox = Math.abs(t.x - boxX) < GUIDE_TOLERANCE * view.cw;
+      // Harder to leave the box than to enter it, so jitter at the edge
+      // doesn't flick it in and out.
+      const tolerance = inBoxBefore ? GUIDE_EXIT_TOLERANCE : GUIDE_TOLERANCE;
+      const inBox = Math.abs(t.x - boxX) < tolerance * view.cw;
+      inBoxBefore = inBox;
       const now = performance.now();
-      const still = gyro.lastT === null || gyro.maxSpeed(now - 200, now) < 6;
+      // A frame we missed: keep the hold where it is.
+      if (!fresh) {
+        return {
+          target: t,
+          box: { ...t, x: boxX },
+          inBox,
+          hold: holdMs / GUIDE_HOLD_MS,
+        };
+      }
+      let viewStill = true;
+      if (lastTarget && now > lastTarget.at) {
+        const moved = Math.hypot(t.x - lastTarget.x, t.y - lastTarget.y);
+        viewStill =
+          moved / view.cw / ((now - lastTarget.at) / 1000) < STILL_VIEW_PER_SEC;
+      }
+      lastTarget = { x: t.x, y: t.y, at: now };
+      const turning =
+        gyro.lastT !== null && gyro.maxSpeed(now - 200, now) > MOVING_DPS;
+      const still = viewStill && !turning;
       holdMs = inBox && still ? holdMs + dt : 0;
       if (holdMs >= GUIDE_HOLD_MS) {
         guideZone++;
@@ -232,8 +291,20 @@ export function SeatScanner({
       const dt = lastFrameAt ? Math.min(100, now - lastFrameAt) : 0;
       lastFrameAt = now;
       const view = viewMap(overlayRef.current, video, w, h);
+      frames++;
+      if (found) {
+        hits++;
+        lastSeen = { found, at: now };
+      }
+      // A frame or two without the screen keeps the last sighting.
+      const seen =
+        found ??
+        (lastSeen && now - lastSeen.at < MISS_GRACE_MS ? lastSeen.found : null);
+      const lost = !lastSeen || now - lastSeen.at > LOST_MS;
       const guide =
-        phase === "sweep" && found && view ? nextGuide(found, view, dt) : null;
+        phase === "sweep" && seen && view
+          ? nextGuide(seen, view, dt, found !== null)
+          : null;
       // Turning the phone moves the screen the other way across the view, so
       // to bring it into the box, turn away from the box.
       setTurn(
@@ -244,7 +315,23 @@ export function SeatScanner({
           : 0,
       );
       if (stopped) return;
-      drawOverlay(view, detector, found, guide);
+      drawOverlay(view, detector, seen, guide);
+      if (debugOn && now - lastDebugAt > 250) {
+        lastDebugAt = now;
+        const p = robust(perspective);
+        setDebug(
+          [
+            cameraLabel || "camera ?",
+            `video ${video.videoWidth}x${video.videoHeight}, detect ${w}x${h}`,
+            `lens ${lens.fov.toFixed(0)}° ${lens.source}` +
+              (p
+                ? `, view says ${fovFromFocal(p.median, w, h).toFixed(0)}° (n ${p.n}, ±${(p.spread * 100).toFixed(1)}%)`
+                : ""),
+            `seen ${Math.round((hits / Math.max(1, frames)) * 100)}% of ${frames} frames`,
+            `phase ${phase}${phase === "sweep" ? ` step ${guideZone}` : ""}`,
+          ].join("\n"),
+        );
+      }
       if (found) {
         if (!found.coarse) {
           perspective.push(focalFromHomography(found.homography, w, h));
@@ -264,7 +351,7 @@ export function SeatScanner({
           samples.push({ matches: found.matches, w, h });
           setProgress(samples.length / SAMPLES);
           setHint("Hold still");
-        } else {
+        } else if (lost) {
           setHint(
             detector.anchors.length
               ? "Get all four corners in view"
@@ -278,7 +365,7 @@ export function SeatScanner({
       setProgress(
         Math.min(1, Math.max(sweep.progress, guideZone / GUIDE_STEPS)),
       );
-      if (!found) setHint("Keep the whole screen in view");
+      if (lost) setHint("Keep the whole screen in view");
       else if (guide?.inBox) setHint("Hold it there");
       else setHint("Move the screen inside the box");
       const res = sweep.result();
@@ -311,7 +398,9 @@ export function SeatScanner({
     void (async () => {
       if (await motion) stopMotion = followMotion(gyro);
       try {
-        stream = await openRearCamera();
+        const camera = await openRearCamera();
+        stream = camera.stream;
+        cameraLabel = camera.label;
       } catch {
         setError(
           "Couldn't open the camera. Allow camera access for this site, then try again.",
@@ -324,7 +413,17 @@ export function SeatScanner({
       }
       video.srcObject = stream;
       await video.play().catch(() => {});
-      lens = rememberedLens(video.videoWidth, video.videoHeight);
+      // Show the camera once a couple of frames have arrived: the first
+      // ones can come in small before the stream settles.
+      const reveal = (n: number) => {
+        if (stopped) return;
+        if (n <= 0) setVideoReady(true);
+        else if (video.requestVideoFrameCallback) {
+          video.requestVideoFrameCallback(() => reveal(n - 1));
+        } else setTimeout(() => reveal(0), 200);
+      };
+      reveal(2);
+      lens = rememberedLens(cameraLabel, video.videoWidth, video.videoHeight);
       loop(performance.now());
     })();
 
@@ -336,6 +435,7 @@ export function SeatScanner({
       <video
         ref={videoRef}
         className={styles.scanVideo}
+        data-ready={videoReady || undefined}
         playsInline
         muted
         autoPlay
@@ -361,6 +461,7 @@ export function SeatScanner({
         <i />
         <i />
       </div>
+      {debug ? <pre className={styles.scanDebug}>{debug}</pre> : null}
       <div className={styles.scanHud}>
         {error ? (
           <>
@@ -429,11 +530,6 @@ function combine(samples: readonly Sample[], fov: number): Pose | null {
     ambiguous: sure.length < 5,
     points: Math.round(median(use.map((p) => p.points))),
   };
-}
-
-/** Long-side fields of view phone main cameras actually have. */
-function plausibleFov(fov: number): boolean {
-  return fov >= 50 && fov <= 85;
 }
 
 const LENS_NOTE: Record<Lens["source"], string> = {

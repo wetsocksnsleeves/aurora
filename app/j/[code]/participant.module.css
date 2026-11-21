@@ -429,6 +429,33 @@
   object-fit: cover;
 }
 
+/* Hidden until the camera's first frames settle, then faded in. */
+.scanVideo {
+  opacity: 0;
+  transition: opacity 0.25s ease-out;
+}
+
+.scanVideo[data-ready] {
+  opacity: 1;
+}
+
+.scanDebug {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 0.7);
+  font:
+    11px/1.5 ui-monospace,
+    monospace;
+  white-space: pre-wrap;
+  z-index: 5;
+  pointer-events: none;
+}
+
 /* Rounded corner brackets, like the anchors. */
 .viewfinder {
   position: absolute;

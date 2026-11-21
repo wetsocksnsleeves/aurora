@@ -46,15 +46,70 @@ export function cameraSupported(): boolean {
   );
 }
 
-export function openRearCamera(): Promise<MediaStream> {
-  return navigator.mediaDevices.getUserMedia({
+const VIDEO: MediaTrackConstraints = {
+  width: { ideal: 1920 },
+  height: { ideal: 1080 },
+};
+
+/** Back lenses that aren't the main camera, when the browser names them. */
+const NOT_MAIN = /ultra|wide|tele|macro|depth|tof|zoom|mono/i;
+
+/**
+ * The main back camera's device id, when the browser's choice may not be
+ * it. Chrome on Android names cameras "camera2 N, facing back", and
+ * "facing environment" often opens an ultra-wide or telephoto lens; the
+ * lowest numbered back camera is the main one on nearly every phone. Other
+ * browsers (iPhone Safari) already pick the main camera: null.
+ */
+export function mainBackCamera(
+  devices: readonly Pick<MediaDeviceInfo, "deviceId" | "kind" | "label">[],
+): string | null {
+  let best: { id: string; n: number } | null = null;
+  for (const d of devices) {
+    if (d.kind !== "videoinput") continue;
+    const m = /camera2 (\d+), facing back/i.exec(d.label);
+    if (!m || NOT_MAIN.test(d.label)) continue;
+    const n = Number(m[1]);
+    if (!best || n < best.n) best = { id: d.deviceId, n };
+  }
+  return best?.id ?? null;
+}
+
+export type RearCamera = { stream: MediaStream; label: string };
+
+/**
+ * Open the main back camera. Asks for "the back camera" first (camera
+ * names are only listed once permission is granted), then switches to the
+ * main one if the browser picked another lens.
+ */
+export async function openRearCamera(): Promise<RearCamera> {
+  let stream = await navigator.mediaDevices.getUserMedia({
     audio: false,
-    video: {
-      facingMode: { ideal: "environment" },
-      width: { ideal: 1920 },
-      height: { ideal: 1080 },
-    },
+    video: { ...VIDEO, facingMode: { ideal: "environment" } },
   });
+  try {
+    const main = mainBackCamera(
+      await navigator.mediaDevices.enumerateDevices(),
+    );
+    const current = stream.getVideoTracks()[0]?.getSettings().deviceId;
+    if (main && current !== main) {
+      stream.getTracks().forEach((t) => t.stop());
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { ...VIDEO, deviceId: { exact: main } },
+      });
+    }
+  } catch {
+    // Keep whatever camera we have.
+  }
+  const track = stream.getVideoTracks()[0];
+  // Keep refocusing as the phone moves, where the browser allows it.
+  track
+    ?.applyConstraints({
+      advanced: [{ focusMode: "continuous" } as MediaTrackConstraintSet],
+    })
+    .catch(() => {});
+  return { stream, label: track?.label ?? "" };
 }
 
 /** Copies video frames into a greyscale buffer at processing size. */
@@ -91,29 +146,37 @@ export class FrameGrabber {
 
 // -- Field of view memory ----------------------------------------------------
 
-/** v2: measurements from before the close-range sweep fix are not trusted. */
-const LENS_KEY = "lightshow-lens-v2";
+/**
+ * v3: kept per camera, since Android phones can open different lenses, and
+ * wide lenses are no longer thrown away.
+ */
+const LENS_KEY = "lightshow-lens-v3";
+
+/** Long-side fields of view of phone cameras, main to ultra-wide. */
+export function plausibleFov(fov: number): boolean {
+  return fov >= 45 && fov <= 125;
+}
 
 /** How this phone knows its camera's field of view. */
 export type LensSource = "view" | "sweep" | "remembered" | "default";
 export type Lens = { fov: number; source: LensSource };
 
 /**
- * Measurements are kept per video size, since the browser may crop the
- * sensor differently at different resolutions.
+ * Measurements are kept per camera and video size, since the browser may
+ * crop the sensor differently at different resolutions.
  */
-function lensKey(w: number, h: number): string {
-  return `${Math.max(w, h)}x${Math.min(w, h)}`;
+function lensKey(camera: string, w: number, h: number): string {
+  return `${camera}|${Math.max(w, h)}x${Math.min(w, h)}`;
 }
 
-export function rememberedLens(w: number, h: number): Lens {
+export function rememberedLens(camera: string, w: number, h: number): Lens {
   try {
     const saved = JSON.parse(localStorage.getItem(LENS_KEY) ?? "{}") as Record<
       string,
       number
     >;
-    const fov = saved[lensKey(w, h)];
-    if (typeof fov === "number" && fov >= 50 && fov <= 85) {
+    const fov = saved[lensKey(camera, w, h)];
+    if (typeof fov === "number" && plausibleFov(fov)) {
       return { fov, source: "remembered" };
     }
   } catch {
@@ -122,13 +185,18 @@ export function rememberedLens(w: number, h: number): Lens {
   return { fov: DEFAULT_FOV, source: "default" };
 }
 
-export function rememberLens(w: number, h: number, fov: number): void {
+export function rememberLens(
+  camera: string,
+  w: number,
+  h: number,
+  fov: number,
+): void {
   try {
     const saved = JSON.parse(localStorage.getItem(LENS_KEY) ?? "{}") as Record<
       string,
       number
     >;
-    saved[lensKey(w, h)] = fov;
+    saved[lensKey(camera, w, h)] = fov;
     localStorage.setItem(LENS_KEY, JSON.stringify(saved));
   } catch {
     // Not remembered; the next scan measures again.
