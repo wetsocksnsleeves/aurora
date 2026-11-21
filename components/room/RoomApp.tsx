@@ -17,13 +17,8 @@ import {
   type HostSnapshot,
 } from "@/app/sessions/host-client";
 import { listShows } from "@/components/editor/api";
-import { ClipInspector } from "@/components/editor/ClipInspector";
 import type { Size } from "@/components/editor/geometry";
-import {
-  handleEditorKey,
-  isTypingTarget,
-  timelineKeys,
-} from "@/components/editor/keyboard";
+import { isTypingTarget, timelineKeys } from "@/components/editor/keyboard";
 import { saveEditorShow } from "@/components/editor/save";
 import {
   createEditorStore,
@@ -33,17 +28,10 @@ import {
 } from "@/components/editor/store";
 import {
   EditorStoreProvider,
+  useEditorSelector,
   useEditorStore,
 } from "@/components/editor/store-context";
-import { Timeline } from "@/components/editor/Timeline";
-import { VENUE_TOOLS, toolHandlers } from "@/components/editor/tools";
-import {
-  AudioUpload,
-  PlayButton,
-  SnapControls,
-  TimeReadout,
-  ZoomControl,
-} from "@/components/editor/Transport";
+import { toolHandlers } from "@/components/editor/tools";
 import { VenueCanvas } from "@/components/editor/VenueCanvas";
 import { clickTimesForShow } from "@/lib/audio-schedule";
 import {
@@ -54,12 +42,25 @@ import {
 import { showDurationMs } from "@/lib/compile";
 import { countByState } from "@/lib/host-map";
 import type { SessionMessage } from "@/lib/protocol";
+import { Coach } from "./Coach";
 import { CrowdCanvas } from "./CrowdCanvas";
-import { CrowdCard } from "./CrowdCard";
+import {
+  copySelected,
+  deleteSelected,
+  duplicateSelected,
+  paste,
+  splitSelected,
+} from "./edit-actions";
+import { Inspector } from "./Inspector";
+import { Library } from "./Library";
 import { ROOM_LAYERS } from "./room-layers";
 import { Settings } from "./Settings";
+import { ShowControls } from "./ShowControls";
 import { ShowPicker } from "./ShowPicker";
-import { ToolRail } from "./ToolRail";
+import { Timeline } from "./timeline/Timeline";
+import { useDecodedAudio, usePlayback } from "./timeline/playback";
+import { useRoomPointer } from "./use-room-pointer";
+import { useToast } from "./use-toast";
 import { useHostAudio, type HostAudioControls } from "./use-host-audio";
 import styles from "./room.module.css";
 
@@ -230,16 +231,18 @@ function Room({ code, onLost }: { code: string; onLost: () => void }) {
 
 /** One editor store per loaded show. */
 function ShowStudio(props: RoomProps) {
-  const [store] = useState(() => {
-    const state = initialEditorState(props.session.show);
-    return createEditorStore({ ...state, tool: "shape" });
-  });
+  const [store] = useState(() =>
+    createEditorStore(initialEditorState(props.session.show)),
+  );
   return (
     <EditorStoreProvider store={store}>
       <Studio {...props} />
     </EditorStoreProvider>
   );
 }
+
+/** Tools that draw on the room; after one shape the room goes back to select. */
+const DRAWING_TOOLS = new Set(["shape", "brush", "moving", "fill"]);
 
 function Studio({
   client,
@@ -259,31 +262,105 @@ function Studio({
   const sync = useShowSync(store, client, session, readOnly, playing);
   const counts = useMemo(() => countByState(participants), [participants]);
   const canvasSize = useRef<Size>({ width: 0, height: 0 });
+  const frameRef = useRef<HTMLDivElement>(null);
+  const [toastState, toast] = useToast();
+  const fileId = useEditorSelector((s) => s.show.audio.fileId);
+  const empty = useEditorSelector((s) => s.show.clips.length === 0);
+  const tool = useEditorSelector((s) => s.tool);
+  const decoded = useDecodedAudio(store, fileId);
 
+  usePlayback(store, fileId, playing);
   usePlayheadFollowsShow(store, client, liveShow, T0);
+  const dragged = useRoomPointer(frameRef, {
+    store,
+    client,
+    participants,
+    canPlace: !playing,
+    canSelect: !playing,
+  });
+
+  // Drawing a shape is one-off: once it's added, go back to selecting.
+  useEffect(() => {
+    let count = store.getState().show.clips.length;
+    return store.subscribe(() => {
+      const s = store.getState();
+      const next = s.show.clips.length;
+      if (next > count && DRAWING_TOOLS.has(s.tool)) {
+        store.dispatch({ type: "setTool", tool: "select" });
+      }
+      count = next;
+    });
+  }, [store]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+      const cmd = e.metaKey || e.ctrlKey;
+      const key = e.key.toLowerCase();
+      if (cmd && key === "s") {
         e.preventDefault();
         void sync.flush();
         return;
       }
       if (isTypingTarget(e.target) || playing) return;
-      const key = e.key.toLowerCase();
-      // The room has no venue to draw: skip the venue tool shortcuts.
-      if (VENUE_TOOLS.some((id) => toolHandlers[id].shortcut === key)) return;
-      const handled = readOnly
-        ? timelineKeys(store)(e)
-        : handleEditorKey(e, store, canvasSize.current, [timelineKeys(store)]);
+      const handled = roomKey(e, cmd, key);
       if (handled) e.preventDefault();
+    };
+    const roomKey = (e: KeyboardEvent, cmd: boolean, key: string): boolean => {
+      const state = store.getState();
+      // A drawing tool sees keys first (Enter closes a shape, Esc cancels).
+      const handler = toolHandlers[state.tool];
+      if (
+        !readOnly &&
+        handler.onKeyDown?.(e.key, { store, size: canvasSize.current })
+      ) {
+        return true;
+      }
+      if (key === "escape") {
+        store.dispatch({ type: "setDraft", draft: null });
+        store.dispatch({ type: "select", selection: null });
+        store.dispatch({ type: "setTool", tool: "select" });
+        return true;
+      }
+      if (timelineKeys(store)(e)) return true;
+      if (readOnly) return false;
+      if (cmd && key === "z") {
+        store.dispatch({ type: e.shiftKey ? "redo" : "undo" });
+        return true;
+      }
+      if (cmd && key === "y") {
+        store.dispatch({ type: "redo" });
+        return true;
+      }
+      if (cmd && key === "d") {
+        duplicateSelected(store, toast);
+        return true;
+      }
+      if (cmd && key === "c") {
+        copySelected(store, toast);
+        return true;
+      }
+      if (cmd && key === "v") {
+        paste(store, toast);
+        return true;
+      }
+      if (cmd || e.altKey) return false;
+      if (key === "s") {
+        splitSelected(store, toast);
+        return true;
+      }
+      if (key === "delete" || key === "backspace") {
+        deleteSelected(store, toast);
+        return true;
+      }
+      return false;
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [store, sync, playing, readOnly]);
+  }, [store, sync, playing, readOnly, toast]);
 
   const screenHref = `/sessions/${session.code}/screen?join=${encodeURIComponent(session.joinUrl)}`;
   const inRoom = counts.total - counts.disconnected;
+  const drawing = DRAWING_TOOLS.has(tool);
 
   return (
     <main
@@ -301,6 +378,11 @@ function Studio({
             disabled={playing || connection !== "open"}
             beforeSwitch={sync.flush}
             onLoad={(id) => client.loadShow(id)}
+          />
+          <SyncStatus
+            state={sync.state}
+            error={sync.error}
+            readOnly={readOnly}
           />
         </div>
         <div className={styles.actions}>
@@ -325,32 +407,7 @@ function Studio({
             setClickOn={setClickOn}
             onNewRoom={onNewRoom}
           />
-        </div>
-      </header>
-
-      <div className={styles.studio}>
-        <ToolRail disabled={locked} />
-        <section className={styles.stage} aria-label="Room">
-          <VenueCanvas
-            layers={ROOM_LAYERS}
-            className={styles.roomFrame}
-            onResize={(size) => {
-              canvasSize.current = size;
-            }}
-          >
-            <CrowdCanvas
-              client={client}
-              participants={participants}
-              liveShow={liveShow}
-              T0={T0}
-            />
-            <div className={styles.screenBar} aria-hidden />
-            <p className={styles.screenTag}>Screen</p>
-            {locked ? <div className={styles.lock} /> : null}
-          </VenueCanvas>
-        </section>
-        <aside className={styles.side}>
-          <CrowdCard
+          <ShowControls
             client={client}
             snapshot={snapshot}
             counts={counts}
@@ -359,42 +416,69 @@ function Studio({
             onStart={() => {
               // The click is the gesture that lets the AudioContext run.
               void audio.audio.unlock();
+              store.dispatch({ type: "setPlaying", playing: false });
               client.startShow();
             }}
           />
-          {playing ? (
-            <p className={styles.note}>
-              Edits are paused while the show plays. Stop it to keep editing.
-            </p>
-          ) : readOnly ? (
-            <p className={styles.note}>
-              This is a built-in test show, so it can’t be edited. Pick New show
-              to make your own.
-            </p>
-          ) : (
-            <ClipInspector />
-          )}
-        </aside>
-        <section
-          className={styles.timeline}
-          data-locked={locked || undefined}
-          aria-label="Timeline"
-        >
-          <div className={styles.transport}>
-            {playing ? null : <PlayButton />}
-            <TimeReadout />
-            <ZoomControl />
-            {readOnly ? null : <SnapControls />}
-            <span className={styles.spacer} />
-            <SyncStatus
-              state={sync.state}
-              error={sync.error}
-              readOnly={readOnly}
-            />
-            {locked ? null : <AudioUpload />}
+        </div>
+      </header>
+
+      <div className={styles.studio}>
+        <Library audio={decoded} disabled={locked} toast={toast} />
+        <section className={styles.stage} aria-label="Room">
+          <div ref={frameRef} className={styles.roomFrame}>
+            <VenueCanvas
+              layers={ROOM_LAYERS}
+              className={styles.canvasFill}
+              onResize={(size) => {
+                canvasSize.current = size;
+              }}
+            >
+              <CrowdCanvas
+                client={client}
+                participants={participants}
+                liveShow={liveShow}
+                T0={T0}
+                dragged={dragged}
+              />
+              <div className={styles.screenBar} aria-hidden />
+              <p className={styles.screenTag}>Screen</p>
+              {empty && !readOnly && !drawing && !playing ? (
+                <Coach
+                  phonesIn={inRoom}
+                  screenHref={screenHref}
+                  toast={toast}
+                />
+              ) : null}
+            </VenueCanvas>
           </div>
-          <Timeline />
+          {drawing && !locked ? (
+            <p className={styles.drawHint}>
+              {tool === "brush"
+                ? "Paint an area on the room."
+                : "Drag a box on the room, or click its corners and press Enter."}{" "}
+              <span>Esc to cancel</span>
+            </p>
+          ) : null}
+          {toastState ? (
+            <div key={toastState.id} className={styles.toast} role="status">
+              {toastState.message}
+              {toastState.undoable ? <span> · ⌘Z to undo</span> : null}
+            </div>
+          ) : null}
         </section>
+        <Inspector
+          counts={counts}
+          playing={playing}
+          readOnly={readOnly}
+          toast={toast}
+        />
+        <Timeline
+          audio={decoded}
+          locked={playing}
+          readOnly={readOnly}
+          toast={toast}
+        />
       </div>
     </main>
   );

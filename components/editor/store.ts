@@ -3,6 +3,7 @@ import {
   DEFAULT_CLIP_COLOR,
   minClipMs,
   patchClip,
+  splitClip,
   type ClipPatch,
 } from "./clips";
 import { DEFAULT_SNAP, snapTime, type SnapSettings } from "./snap";
@@ -92,7 +93,17 @@ export type EditorState = {
   snap: SnapSettings;
   audioStatus: AudioStatus;
   audioError: string | null;
+
+  // Undo (room editor). Earlier versions of `show`, newest last, and the
+  // versions undone since the last edit, next first.
+  past: Show[];
+  future: Show[];
+  /** The gesture of the last recorded edit: one drag is one undo step. */
+  gesture: string | null;
 };
+
+/** Undo steps kept. */
+export const MAX_UNDO = 100;
 
 export type EditorAction =
   | { type: "renameShow"; name: string }
@@ -106,8 +117,21 @@ export type EditorAction =
   | { type: "setPreviewMode"; mode: PreviewMode }
   /** Appends a clip and selects it. */
   | { type: "addClip"; clip: Clip }
-  /** Changes a clip; times and fades are repaired (see `patchClip`). */
-  | { type: "updateClip"; id: string; patch: ClipPatch }
+  /**
+   * Changes a clip; times and fades are repaired (see `patchClip`). Edits
+   * with the same `gesture` (one drag) undo as one step.
+   */
+  | { type: "updateClip"; id: string; patch: ClipPatch; gesture?: string }
+  /** Appends clips (paste, effects) and selects `select`. */
+  | { type: "addClips"; clips: Clip[]; select?: string }
+  /** Replaces every clip, e.g. with a show made from the music. */
+  | { type: "replaceClips"; clips: Clip[] }
+  /** Cuts a clip in two at `atMs`; the second half gets `newId`. */
+  | { type: "splitClip"; id: string; atMs: number; newId: string }
+  /** Length of a show without music. */
+  | { type: "setShowLength"; durationMs: number }
+  | { type: "undo" }
+  | { type: "redo" }
   | { type: "deleteClip"; id: string }
   /**
    * One layer up or down. The clip also moves to the end (up) or start (down)
@@ -150,6 +174,9 @@ export function initialEditorState(show: Show): EditorState {
     snap: DEFAULT_SNAP,
     audioStatus: show.audio.fileId ? "loading" : "none",
     audioError: null,
+    past: [],
+    future: [],
+    gesture: null,
   };
 }
 
@@ -181,11 +208,112 @@ function withClips(state: EditorState, clips: Clip[]): EditorState {
   return withShow(state, { ...state.show, clips });
 }
 
+/**
+ * Applies `action`, recording the show as it was for undo when the action
+ * edited it. Measuring the audio (`setShowAudio`) isn't an edit.
+ */
 export function editorReducer(
   state: EditorState,
   action: EditorAction,
 ): EditorState {
+  const next = reduce(state, action);
+  if (
+    next.revision === state.revision ||
+    action.type === "setShowAudio" ||
+    action.type === "undo" ||
+    action.type === "redo"
+  ) {
+    return next;
+  }
+  const gesture = "gesture" in action ? (action.gesture ?? null) : null;
+  const sameGesture = gesture !== null && gesture === state.gesture;
+  return {
+    ...next,
+    past: sameGesture
+      ? state.past
+      : [...state.past, state.show].slice(-MAX_UNDO),
+    future: [],
+    gesture,
+  };
+}
+
+/** `show` restored from history, keeping the current music. */
+function restore(state: EditorState, show: Show): EditorState {
+  const restored = { ...show, audio: state.show.audio };
+  const selection = state.selection;
+  const keep =
+    selection?.kind !== "clip" ||
+    restored.clips.some((c) => c.id === selection.id);
+  return {
+    ...state,
+    show: restored,
+    revision: state.revision + 1,
+    selection: keep ? selection : null,
+    gesture: null,
+  };
+}
+
+function reduce(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
+    case "undo": {
+      const previous = state.past.at(-1);
+      if (!previous) return state;
+      return {
+        ...restore(state, previous),
+        past: state.past.slice(0, -1),
+        future: [state.show, ...state.future],
+      };
+    }
+
+    case "redo": {
+      const next = state.future[0];
+      if (!next) return state;
+      return {
+        ...restore(state, next),
+        past: [...state.past, state.show],
+        future: state.future.slice(1),
+      };
+    }
+
+    case "addClips":
+      if (action.clips.length === 0) return state;
+      return {
+        ...withClips(state, [...state.show.clips, ...action.clips]),
+        selection: action.select
+          ? { kind: "clip", id: action.select }
+          : state.selection,
+      };
+
+    case "replaceClips":
+      return { ...withClips(state, action.clips), selection: null };
+
+    case "splitClip": {
+      const clips = state.show.clips;
+      const index = clips.findIndex((c) => c.id === action.id);
+      if (index === -1) return state;
+      const halves = splitClip(clips[index], action.atMs, action.newId);
+      if (!halves) return state;
+      return {
+        ...withClips(state, [
+          ...clips.slice(0, index),
+          ...halves,
+          ...clips.slice(index + 1),
+        ]),
+        selection: { kind: "clip", id: action.newId },
+      };
+    }
+
+    case "setShowLength": {
+      const audio = state.show.audio;
+      const durationMs = Math.max(1000, Math.round(action.durationMs));
+      if (audio.fileId || audio.durationMs === durationMs) return state;
+      const next = withShow(state, {
+        ...state.show,
+        audio: { ...audio, durationMs },
+      });
+      return { ...next, currentTimeMs: clampToShow(next, state.currentTimeMs) };
+    }
+
     case "renameShow":
       if (action.name === state.show.name) return state;
       return withShow(state, { ...state.show, name: action.name });
@@ -289,12 +417,12 @@ export function editorReducer(
       if (!selection) return state;
       switch (selection.kind) {
         case "venueShape":
-          return editorReducer(state, {
+          return reduce(state, {
             type: "deleteVenueShape",
             id: selection.id,
           });
         case "clip":
-          return editorReducer(state, { type: "deleteClip", id: selection.id });
+          return reduce(state, { type: "deleteClip", id: selection.id });
       }
       return state;
     }

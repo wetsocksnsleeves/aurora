@@ -203,6 +203,15 @@ export class HostClient {
     return this.send({ type: "load", showId });
   }
 
+  /**
+   * Move a phone on the room by hand (show coordinates, 0..1). It stays
+   * there until the phone finds its seat again.
+   */
+  placeParticipant(participantId: string, x: number, y: number): boolean {
+    this.update({ lastError: null });
+    return this.send({ type: "place", participantId, x, y });
+  }
+
   /** Call on `visibilitychange`: a returning tab resyncs its clock. */
   setVisible(visible: boolean): void {
     if (visible && this.running) this.clock.onVisible();

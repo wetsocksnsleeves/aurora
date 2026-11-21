@@ -1,7 +1,10 @@
 import {
   PARTICIPANT_STATES,
+  PATTERN_KINDS,
   type Clip,
   type ClipShape,
+  type Direction,
+  type PatternKind,
   type ParticipantState,
   type Point,
   type PositioningConfig,
@@ -588,7 +591,7 @@ function show(value: unknown): Show {
 
 function clip(value: unknown): Clip {
   if (!isRecord(value)) throw new InvalidMessage("clip must be an object");
-  return {
+  const parsed: Clip = {
     id: str(value, "id"),
     layer: num(value, "layer"),
     startMs: num(value, "startMs"),
@@ -598,12 +601,44 @@ function clip(value: unknown): Clip {
     fadeOutMs: num(value, "fadeOutMs"),
     shape: clipShape(rec(value, "shape")),
   };
+  if (value.blink !== undefined && value.blink !== null) {
+    const b = rec(value, "blink");
+    parsed.blink = {
+      periodMs: num(b, "periodMs"),
+      duty: num(b, "duty"),
+      soft: bool(b, "soft"),
+    };
+  }
+  if (value.label !== undefined && value.label !== null) {
+    parsed.label = str(value, "label");
+  }
+  return parsed;
 }
+
+const DIRECTIONS: readonly Direction[] = ["left", "right", "up", "down"];
 
 function clipShape(v: Rec): ClipShape {
   if (v.kind === "fill") return { kind: "fill" };
+  if (v.kind === "pattern") {
+    const pattern = str(v, "pattern") as PatternKind;
+    const direction = str(v, "direction") as Direction;
+    if (!PATTERN_KINDS.includes(pattern) || !DIRECTIONS.includes(direction)) {
+      throw new InvalidMessage("clip pattern or direction is not known");
+    }
+    return {
+      kind: "pattern",
+      pattern,
+      direction,
+      size: num(v, "size"),
+      stepMs: num(v, "stepMs"),
+      from: num(v, "from"),
+      to: num(v, "to"),
+    };
+  }
   if (v.kind !== "polygon") {
-    throw new InvalidMessage("clip `shape.kind` must be fill or polygon");
+    throw new InvalidMessage(
+      "clip `shape.kind` must be fill, polygon or pattern",
+    );
   }
   const shape: ClipShape = {
     kind: "polygon",

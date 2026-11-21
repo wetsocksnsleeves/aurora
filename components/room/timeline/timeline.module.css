@@ -1,0 +1,401 @@
+.timeline {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+/* Toolbar */
+
+.toolbar {
+  height: 52px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.icon {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 6px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--dim);
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.icon:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.07);
+  color: var(--fg);
+}
+
+.icon:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.icon[aria-pressed="true"] {
+  background: rgb(255 255 255 / 0.1);
+  color: var(--fg);
+}
+
+.sep {
+  width: 1px;
+  height: 22px;
+  margin: 0 8px;
+  background: var(--line);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.play {
+  width: 36px;
+  height: 36px;
+  margin: 0 10px 0 2px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.playGlyph {
+  margin-left: 3px;
+  border-left: 11px solid #000;
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
+}
+
+.pauseGlyph {
+  width: 11px;
+  height: 13px;
+  border-left: 4px solid #000;
+  border-right: 4px solid #000;
+}
+
+.time {
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  min-width: 128px;
+}
+
+.time span {
+  color: var(--dim);
+}
+
+.snap,
+.zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.snap select,
+.bpm input {
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #000;
+  color: var(--fg);
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.bpm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bpm input {
+  width: 62px;
+}
+
+.warn {
+  color: #fbbf24;
+}
+
+.zoom input {
+  width: 110px;
+  accent-color: #fff;
+}
+
+.shortcuts {
+  position: relative;
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+}
+
+.keysPanel {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 21;
+  width: 300px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #0c0c0c;
+  box-shadow: 0 30px 80px rgb(0 0 0 / 0.8);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.keysPanel div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.keysPanel span {
+  color: var(--dim);
+}
+
+.keysPanel kbd {
+  font: inherit;
+  font-weight: 500;
+}
+
+/* Tracks */
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+}
+
+.content {
+  position: relative;
+  min-height: 100%;
+}
+
+.rulerRow,
+.row,
+.audioRow {
+  display: flex;
+}
+
+/* The music stays in view under any number of tracks. */
+.audioRow {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  background: #000;
+  border-top: 1px solid var(--line);
+}
+
+.rulerRow {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  height: 26px;
+  background: #000;
+  border-bottom: 1px solid var(--line);
+}
+
+.head {
+  position: sticky;
+  left: 0;
+  z-index: 7;
+  width: 96px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  background: #000;
+  border-right: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.ruler,
+.lane,
+.audioLane {
+  position: relative;
+  flex: none;
+}
+
+.ruler {
+  cursor: ew-resize;
+}
+
+.lane {
+  height: 44px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.05);
+}
+
+.lane[data-empty] {
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0 12px,
+    rgb(255 255 255 / 0.015) 12px 24px
+  );
+}
+
+.audioLane {
+  height: 56px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.05);
+}
+
+.laneCanvas {
+  position: absolute;
+  top: 0;
+  pointer-events: none;
+}
+
+.audioLane .laneCanvas {
+  top: 2px;
+}
+
+.laneHint {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 12px;
+  color: var(--faint);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.clip {
+  position: absolute;
+  top: 6px;
+  height: 32px;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.timeline[data-locked] .clip {
+  cursor: default;
+}
+
+.clip:active {
+  cursor: grabbing;
+}
+
+.clip[data-selected] {
+  box-shadow:
+    0 0 0 2px #000,
+    0 0 0 4px #fff;
+  z-index: 2;
+}
+
+.clipLabel {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.fadeIn,
+.fadeOut {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.fadeIn {
+  left: 0;
+  background: linear-gradient(90deg, rgb(0 0 0 / 0.5), transparent);
+}
+
+.fadeOut {
+  right: 0;
+  background: linear-gradient(270deg, rgb(0 0 0 / 0.5), transparent);
+}
+
+.edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.edge[data-edge="start"] {
+  left: 0;
+}
+
+.edge[data-edge="end"] {
+  right: 0;
+}
+
+.clip[data-selected] .edge::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 3px;
+  width: 2px;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+.ghost {
+  position: absolute;
+  top: 6px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1.5px dashed #fff;
+  background: rgb(255 255 255 / 0.08);
+  pointer-events: none;
+}
+
+.playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: #fff;
+  box-shadow: 0 0 10px #fff;
+  z-index: 6;
+  pointer-events: none;
+}
+
+.playhead::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -6px;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px 3px 7px 7px;
+  background: #fff;
+}

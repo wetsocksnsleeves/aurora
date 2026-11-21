@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import { useEditorStore } from "@/components/editor/store-context";
 import type { HostClient } from "@/app/sessions/host-client";
 import { colorAt } from "@/lib/compile";
 import { STATE_COLORS, liveDotColor } from "@/lib/host-map";
 import type { ParticipantSummary } from "@/lib/protocol";
 import type { Show } from "@/lib/types";
+import type { DraggedPhone } from "./use-room-pointer";
 import styles from "./room.module.css";
 
 const UNLIT = "#000000";
@@ -27,12 +28,15 @@ export function CrowdCanvas({
   participants,
   liveShow,
   T0,
+  dragged,
 }: {
   client: HostClient;
   participants: readonly ParticipantSummary[];
   /** The room's show while it plays (T0 set and the clock ready), else null. */
   liveShow: Show | null;
   T0: number | null;
+  /** A phone being dragged by the host: drawn where the pointer is. */
+  dragged: RefObject<DraggedPhone>;
 }) {
   const store = useEditorStore();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -67,7 +71,12 @@ export function CrowdCanvas({
       const { show, currentTimeMs } = store.getState();
       const side = Math.max(5, Math.min(10, rect.width / 70));
       const glow = participants.length <= 200;
-      for (const p of participants) {
+      const moving = dragged.current;
+      for (const listed of participants) {
+        const p =
+          moving && moving.id === listed.id
+            ? { ...listed, x: moving.x, y: moving.y }
+            : listed;
         if (p.x === null || p.y === null) continue;
         let color: string;
         let alpha = 1;
@@ -103,10 +112,24 @@ export function CrowdCanvas({
       }
       ctx.globalAlpha = 1;
       ctx.shadowBlur = 0;
+      if (moving) {
+        // A ring around the phone being moved.
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(
+          moving.x * rect.width,
+          moving.y * rect.height,
+          side * 1.4,
+          0,
+          Math.PI * 2,
+        );
+        ctx.stroke();
+      }
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, [client, store]);
+  }, [client, store, dragged]);
 
   return <canvas ref={canvasRef} className={styles.crowd} aria-hidden />;
 }
