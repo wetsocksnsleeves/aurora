@@ -82,9 +82,7 @@ export function Library({
         <span>
           <b>{creating ? "Creating…" : "Create from the music"}</b>
           <small>
-            {hasMusic
-              ? "Makes a full show from the beat. Edit anything after."
-              : "Add music, then make a full show from its beat."}
+            {hasMusic ? "A full show from the beat" : "Add music first"}
           </small>
         </span>
       </button>

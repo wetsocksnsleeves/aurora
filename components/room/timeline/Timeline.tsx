@@ -447,7 +447,7 @@ export function Timeline({
                   className={styles.laneHint}
                   style={{ left: view.left + 16 }}
                 >
-                  No music. You can still make a show, and add music any time.
+                  No music
                 </span>
               )}
             </div>

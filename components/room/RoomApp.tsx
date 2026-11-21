@@ -396,7 +396,6 @@ function Studio({
           <span className={styles.pill} data-testid="room-count">
             <i aria-hidden />
             {inRoom} {inRoom === 1 ? "phone" : "phones"}
-            <span>in the room</span>
           </span>
           <a
             className={styles.ghost}
@@ -508,10 +507,10 @@ function metres(m: number): string {
 type SyncState = "synced" | "saving" | "updating" | "queued" | "error";
 
 const SYNC_TEXT: Record<Exclude<SyncState, "error">, string> = {
-  synced: "Saved · phones up to date",
+  synced: "",
   saving: "Saving…",
   updating: "Updating phones…",
-  queued: "Saved · phones update after the show",
+  queued: "Phones update after the show",
 };
 
 function SyncStatus({

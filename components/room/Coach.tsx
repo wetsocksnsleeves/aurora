@@ -34,19 +34,19 @@ export function Coach({
       text:
         phonesIn > 0
           ? `${phonesIn} ${phonesIn === 1 ? "phone has" : "phones have"} joined`
-          : "Open the big screen. Phones scan it to join",
+          : "Open the big screen so phones can join",
       href: phonesIn > 0 ? undefined : screenHref,
     },
     {
       done: hasMusic,
-      text: hasMusic ? "Music added" : "Add your music (optional)",
+      text: hasMusic ? "Music added" : "Add music (optional)",
       action: hasMusic ? undefined : () => pickMusic(store, toast),
     },
     {
       done: false,
-      text: "Drag an effect onto the timeline, or create a show from the music",
+      text: "Drag an effect onto the timeline",
     },
-    { done: false, text: "Press Start show" },
+    { done: false, text: "Start the show" },
   ];
   let n = 0;
   return (

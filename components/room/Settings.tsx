@@ -86,8 +86,7 @@ export function Settings({
               </span>
             </label>
             <p className={styles.hint}>
-              Diagonal of the screen showing the big screen page, fullscreen.
-              Phones use it to judge how far away they are.
+              Big screen diagonal. Phones use it to judge distance.
             </p>
 
             <label className={styles.setting}>
@@ -108,8 +107,7 @@ export function Settings({
               />
             </label>
             <p className={styles.hint}>
-              Positive plays this laptop’s audio later. Go negative to cancel
-              speaker delay (Bluetooth adds 100 to 300 ms).
+              Go negative to cancel speaker lag (Bluetooth: 100–300 ms).
               {offsetMs !== 0 ? (
                 <>
                   {" "}
@@ -144,7 +142,7 @@ export function Settings({
                 checked={clickOn}
                 onChange={(e) => setClickOn(e.target.checked)}
               />
-              Click track: a beep at each clip start
+              Beep at each clip start
             </label>
 
             <a
