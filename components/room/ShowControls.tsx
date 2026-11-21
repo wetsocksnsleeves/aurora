@@ -78,7 +78,7 @@ export function ShowControls({
         : counts.standby === 0
           ? "No phones are ready yet"
           : !ready
-            ? "Sending your latest edits to the phones"
+            ? "Updating phones"
             : undefined;
   return (
     <span className={styles.showControls}>

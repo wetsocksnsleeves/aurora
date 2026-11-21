@@ -60,14 +60,10 @@ export function Inspector({
         </span>
       </section>
       {playing ? (
-        <p className={styles.note}>
-          Edits are paused while the show plays. Stop it to keep editing. You
-          can still watch every phone on the room.
-        </p>
+        <p className={styles.note}>Stop the show to edit.</p>
       ) : readOnly ? (
         <p className={styles.note}>
-          This is a built-in test show, so it can’t be edited. Pick New show
-          from the show menu to make your own.
+          Test shows can’t be edited. Pick New show to make your own.
         </p>
       ) : clip ? (
         <ClipPanel clip={clip} toast={toast} />
@@ -556,8 +552,7 @@ function ShowPanel({ toast }: { toast: Toast }) {
         </Field>
       )}
       <p className={styles.note}>
-        Click a clip on the timeline, or on the room, to change its colour,
-        timing and fades. Drag phones on the room to move them.
+        Select a clip to edit it. Drag phones on the room to move them.
       </p>
     </div>
   );
