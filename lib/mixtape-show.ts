@@ -3,12 +3,12 @@ import { TEST_VENUE } from "./test-show";
 import type { Clip, Show } from "./types";
 
 /**
- * Built-in show that plays about 40 s of three songs in different genres:
- * 2hollis "poster boy", 2KE "PHONK DA FAVELADA" and chandol "Reckless".
- * Each song's lights were generated from the whole track, then the loudest
- * stretch around a drop was cut out and joined by `scripts/mixtape.ts`,
- * which also wrote the audio. `sections` in the JSON says where each song
- * sits.
+ * Built-in show that plays three songs in different genres: 30 s each of
+ * 2hollis "poster boy" and 2KE "PHONK DA FAVELADA", then 1:24–1:49 of
+ * chandol "Reckless". Each song's lights were generated from the whole
+ * track, then cut and joined by `scripts/mixtape.ts` (`--stretch +30
+ * --stretch +30 --stretch 1:24-1:49`), which also wrote the audio.
+ * `sections` in the JSON says where each song sits.
  */
 export const MIXTAPE_SHOW_ID = "mixtape";
 

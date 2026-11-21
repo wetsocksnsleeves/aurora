@@ -12,6 +12,10 @@
  * the drops that fit, the one with the loudest stretch wins. Stretches are
  * levelled to the same loudness, then compressed and limited together
  * (`MASTER`). Needs `ffmpeg` on PATH.
+ *
+ * `--stretch`, given once per song in order, overrides the pick: `auto`
+ * keeps it, `+30` keeps its start but makes it 30 s long, and `1:24-1:49`
+ * cuts that range of the song.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -51,6 +55,8 @@ const HELP = `Usage: npx tsx scripts/mixtape.ts <audio file>... --audio OUT.mp3 
   --seconds N     total length (default 120)
   --fade-ms N     fade-out at the end of each song (default 300)
   --lead-bars N   bars of build-up before the drop (default 4)
+  --stretch S     per song, in order: auto, +SECONDS (auto start, that
+                  long) or FROM-TO (M:SS or seconds)
   --help`;
 
 type Section = {
@@ -72,6 +78,7 @@ function main(): void {
       seconds: { type: "string", default: "120" },
       "fade-ms": { type: "string", default: "300" },
       "lead-bars": { type: "string", default: "4" },
+      stretch: { type: "string", multiple: true, default: [] },
       help: { type: "boolean" },
     },
   });
@@ -88,6 +95,10 @@ function main(): void {
   const fadeMs = Number(values["fade-ms"]);
   const leadBars = Number(values["lead-bars"]);
   const shareMs = totalMs / positionals.length;
+  const stretches = values.stretch;
+  if (stretches.length > positionals.length) {
+    throw new Error("more --stretch values than songs");
+  }
 
   const clips: Clip[] = [];
   const sections: Section[] = [];
@@ -97,7 +108,12 @@ function main(): void {
   positionals.forEach((file, i) => {
     const analysis = analyseAudio(decode(file), ANALYSIS_RATE);
     const songClips = generateLightShow(analysis, TEST_VENUE);
-    const { fromMs, toMs } = pickStretch(analysis, shareMs, leadBars);
+    const { fromMs, toMs } = stretchFor(
+      stretches[i] ?? "auto",
+      analysis,
+      shareMs,
+      leadBars,
+    );
     const title = path.basename(file, path.extname(file));
     console.log(
       `${title}: ${analysis.bpm.toFixed(1)} BPM, ` +
@@ -148,6 +164,36 @@ function main(): void {
     JSON.stringify({ durationMs, sections, clips }, null, 2) + "\n",
   );
   console.log(`wrote ${values.audio} and ${values.json}`);
+}
+
+/** The stretch a `--stretch` value asks for (see the file comment). */
+function stretchFor(
+  spec: string,
+  analysis: AudioAnalysis,
+  shareMs: number,
+  leadBars: number,
+): { fromMs: number; toMs: number } {
+  const clamp = (ms: number) => Math.min(ms, analysis.durationMs);
+  if (spec === "auto") return pickStretch(analysis, shareMs, leadBars);
+  if (spec.startsWith("+")) {
+    const { fromMs } = pickStretch(analysis, shareMs, leadBars);
+    return { fromMs, toMs: clamp(fromMs + parseTime(spec.slice(1))) };
+  }
+  const [from, to, ...rest] = spec.split("-");
+  if (!from || !to || rest.length) throw new Error(`bad --stretch ${spec}`);
+  const range = { fromMs: parseTime(from), toMs: clamp(parseTime(to)) };
+  if (range.toMs <= range.fromMs) throw new Error(`empty --stretch ${spec}`);
+  return range;
+}
+
+/** `M:SS(.s)` or plain seconds, in ms. */
+function parseTime(text: string): number {
+  const parts = text.split(":").map(Number);
+  if (parts.length > 2 || parts.some((n) => !Number.isFinite(n) || n < 0)) {
+    throw new Error(`bad time ${text}`);
+  }
+  const [a, b] = parts as [number, number?];
+  return Math.round((b === undefined ? a : a * 60 + b) * 1000);
 }
 
 /**
