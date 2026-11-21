@@ -23,6 +23,25 @@ describe("crowd stream", () => {
     });
   });
 
+  it("round-trips the venue and omits it when unknown", () => {
+    const venue = {
+      shapes: [
+        {
+          id: "a",
+          points: [
+            { x: 0, y: 0 },
+            { x: 1, y: 0 },
+            { x: 1, y: 1 },
+          ],
+        },
+      ],
+    };
+    const r = parseSeats(encodeSeats("ABC123", [null], venue));
+    expect(r.ok && r.value.venue).toEqual(venue);
+    const none = parseSeats(encodeSeats("ABC123", [null], null));
+    expect(none.ok && "venue" in none.value).toBe(false);
+  });
+
   it("rejects bad seats messages", () => {
     for (const raw of [
       "{",
@@ -32,6 +51,8 @@ describe("crowd stream", () => {
       '{"type":"seats","version":1,"code":1,"seats":[]}',
       '{"type":"seats","version":1,"code":"A","seats":[{"x":"a","y":1}]}',
       '{"type":"seats","version":1,"code":"A","seats":[5]}',
+      '{"type":"seats","version":1,"code":"A","seats":[],"venue":5}',
+      '{"type":"seats","version":1,"code":"A","seats":[],"venue":{"shapes":[{"id":"a","points":[{"x":1}]}]}}',
     ]) {
       expect(parseSeats(raw).ok).toBe(false);
     }

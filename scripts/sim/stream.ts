@@ -1,5 +1,5 @@
 import { WebSocketServer, type WebSocket } from "ws";
-import type { Point } from "@/lib/types";
+import type { Point, Venue } from "@/lib/types";
 import { encodeFrame, encodeSeats } from "@/lib/crowd-stream";
 
 /** Frames per second sent to viewers. */
@@ -7,7 +7,12 @@ const STREAM_HZ = 30;
 /** Skip a viewer whose send queue is above this many bytes. */
 const MAX_BUFFERED_BYTES = 256 * 1024;
 
-export type StreamSource = { seat: Point | null; color: string };
+export type StreamSource = {
+  seat: Point | null;
+  color: string;
+  /** The venue outline once this client has been told it. */
+  venue?: Venue | null;
+};
 
 export type CrowdStream = {
   port: number;
@@ -33,12 +38,15 @@ export async function startCrowdStream(
 
   const seatsKey = () =>
     JSON.stringify(clients.map((c) => (c.seat ? [c.seat.x, c.seat.y] : null)));
+  const venueOf = () => clients.find((c) => c.venue)?.venue ?? null;
   let lastKey = seatsKey();
+  let lastVenueKnown = venueOf() !== null;
   const sendSeats = (ws: WebSocket) =>
     ws.send(
       encodeSeats(
         code,
         clients.map((c) => c.seat),
+        venueOf(),
       ),
     );
   wss.on("connection", (ws) => {
@@ -49,8 +57,10 @@ export async function startCrowdStream(
   let frame = 0;
   const timer = setInterval(() => {
     const key = seatsKey();
-    if (key !== lastKey) {
+    const venueKnown = venueOf() !== null;
+    if (key !== lastKey || venueKnown !== lastVenueKnown) {
       lastKey = key;
+      lastVenueKnown = venueKnown;
       for (const ws of wss.clients)
         if (ws.readyState === ws.OPEN) sendSeats(ws);
     }

@@ -175,6 +175,7 @@ describe("crowd stream", () => {
   it("serves seats and colour frames while a show runs", async () => {
     const frames: Uint8Array[] = [];
     let seats: (Point | null)[] = [];
+    let venueShapes = 0;
     let ws: WebSocket | null = null;
     const log = (line: string) => {
       const port = /^stream: ws:\/\/localhost:(\d+)$/.exec(line)?.[1];
@@ -183,7 +184,10 @@ describe("crowd stream", () => {
       ws.on("message", (data, isBinary) => {
         if (!isBinary) {
           const r = parseSeats(String(data));
-          if (r.ok) seats = r.value.seats;
+          if (r.ok) {
+            seats = r.value.seats;
+            venueShapes = r.value.venue?.shapes.length ?? venueShapes;
+          }
           return;
         }
         const r = decodeFrame(new Uint8Array(data as Buffer), 4);
@@ -201,6 +205,7 @@ describe("crowd stream", () => {
     (ws as WebSocket | null)?.terminate();
     expect(report.passed).toBe(true);
     expect(seats).toHaveLength(4);
+    expect(venueShapes).toBeGreaterThan(0);
     expect(seats.every((s) => s !== null)).toBe(true);
     expect(frames.length).toBeGreaterThan(5);
     // Some frame shows the test wave's white flash, which no state colour is.
