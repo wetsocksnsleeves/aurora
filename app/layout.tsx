@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Aurora",
+  title: "lightshow",
   description: "Synchronised crowd light shows on phone screens",
 };
 

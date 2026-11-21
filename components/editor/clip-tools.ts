@@ -195,7 +195,7 @@ const fillTool: ToolHandler = {
   label: "Fill",
   shortcut: "f",
   cursor: "copy",
-  hint: "Click the venue to light every seat from the playhead.",
+  hint: "Click the room to light every phone from the playhead.",
   onPointerDown(_pointer, { store }) {
     addClip(store, { kind: "fill" });
   },

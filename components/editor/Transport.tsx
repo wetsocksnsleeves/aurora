@@ -9,11 +9,7 @@ import {
   formatTime,
   type SnapMode,
 } from "./snap";
-import {
-  MAX_ZOOM_PX_PER_SEC,
-  MIN_ZOOM_PX_PER_SEC,
-  type PreviewMode,
-} from "./store";
+import { MAX_ZOOM_PX_PER_SEC, MIN_ZOOM_PX_PER_SEC } from "./store";
 import { useEditorSelector, useEditorStore } from "./store-context";
 import styles from "./editor.module.css";
 
@@ -24,24 +20,12 @@ const SNAP_LABELS: Record<SnapMode, string> = {
   beat: "Beat",
 };
 
-/** Play/pause, time readout, preview toggle, zoom, snap grid and audio upload. */
-export function Transport() {
-  return (
-    <div className={styles.transport}>
-      <PlayButton />
-      <TimeReadout />
-      <PreviewToggle />
-      <span className={styles.separator} />
-      <ZoomControl />
-      <span className={styles.separator} />
-      <SnapControls />
-      <span className={styles.spacer} />
-      <AudioUpload />
-    </div>
-  );
-}
+/**
+ * Timeline controls: play/pause, time readout, zoom, snap grid and audio
+ * upload. The room screen lays them out (`components/room/RoomApp.tsx`).
+ */
 
-function PlayButton() {
+export function PlayButton() {
   const store = useEditorStore();
   const playing = useEditorSelector((s) => s.playing);
   const ready = useEditorSelector((s) => s.audioStatus === "ready");
@@ -59,7 +43,7 @@ function PlayButton() {
   );
 }
 
-function TimeReadout() {
+export function TimeReadout() {
   const time = useEditorSelector((s) => s.currentTimeMs);
   const duration = useEditorSelector((s) => s.show.audio.durationMs);
   return (
@@ -69,38 +53,7 @@ function TimeReadout() {
   );
 }
 
-const PREVIEW_LABELS: Record<PreviewMode, string> = {
-  clips: "Clips",
-  dots: "Seats",
-};
-
-/** Switches the canvas between the clip overlay and the simulated seat dots. */
-function PreviewToggle() {
-  const store = useEditorStore();
-  const mode = useEditorSelector((s) => s.previewMode);
-  return (
-    <span className={styles.segmented} role="group" aria-label="Canvas view">
-      {(["clips", "dots"] as const).map((m) => (
-        <button
-          key={m}
-          type="button"
-          className={`${styles.button} ${m === mode ? styles.buttonActive : ""}`}
-          aria-pressed={m === mode}
-          title={
-            m === "dots"
-              ? "Simulated seats, coloured as phones will be"
-              : "Clip shapes at the playhead"
-          }
-          onClick={() => store.dispatch({ type: "setPreviewMode", mode: m })}
-        >
-          {PREVIEW_LABELS[m]}
-        </button>
-      ))}
-    </span>
-  );
-}
-
-function ZoomControl() {
+export function ZoomControl() {
   const store = useEditorStore();
   const zoom = useEditorSelector((s) => s.zoomPxPerSec);
   // Logarithmic slider: equal steps feel like equal zoom changes.
@@ -126,7 +79,7 @@ function ZoomControl() {
   );
 }
 
-function SnapControls() {
+export function SnapControls() {
   const store = useEditorStore();
   const snap = useEditorSelector((s) => s.snap);
   return (
@@ -213,7 +166,7 @@ function SnapControls() {
   );
 }
 
-function AudioUpload() {
+export function AudioUpload() {
   const store = useEditorStore();
   const inputRef = useRef<HTMLInputElement>(null);
   const status = useEditorSelector((s) => s.audioStatus);

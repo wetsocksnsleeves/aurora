@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { fromPx, VENUE_ASPECT, type Size } from "./geometry";
 import { DEFAULT_LAYERS, type CanvasLayer } from "./layers";
 import { useEditorSelector, useEditorStore } from "./store-context";
@@ -21,10 +21,16 @@ const DOUBLE_CLICK_PX = 6;
 export function VenueCanvas({
   layers = DEFAULT_LAYERS,
   onResize,
+  className,
+  children,
 }: {
   layers?: CanvasLayer[];
   /** Called with the canvas size in CSS pixels, for code outside the canvas (key handling). */
   onResize?: (size: Size) => void;
+  /** Replaces the default frame styling and size. */
+  className?: string;
+  /** Overlays drawn over the canvas, inside its frame. */
+  children?: ReactNode;
 }) {
   const store = useEditorStore();
   const cursor = useEditorSelector((s) => toolHandlers[s.tool].cursor);
@@ -145,13 +151,17 @@ export function VenueCanvas({
 
   return (
     <div
-      className={styles.canvasFrame}
-      style={{
-        aspectRatio: String(VENUE_ASPECT),
-        // Fill the width, but never taller than 55% of the viewport, so the
-        // transport and waveform fit below it on a laptop screen.
-        width: `min(100%, calc(55dvh * ${VENUE_ASPECT}))`,
-      }}
+      className={className ?? styles.canvasFrame}
+      style={
+        className
+          ? undefined
+          : {
+              aspectRatio: String(VENUE_ASPECT),
+              // Fill the width, but never taller than 55% of the viewport, so
+              // the transport and waveform fit below it on a laptop screen.
+              width: `min(100%, calc(55dvh * ${VENUE_ASPECT}))`,
+            }
+      }
     >
       <canvas
         ref={canvasRef}
@@ -161,6 +171,7 @@ export function VenueCanvas({
         data-testid="venue-canvas"
         style={{ cursor }}
       />
+      {children}
     </div>
   );
 }

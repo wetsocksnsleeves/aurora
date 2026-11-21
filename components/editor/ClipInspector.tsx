@@ -5,7 +5,7 @@ import { clipKindLabel, type ClipPatch } from "./clips";
 import { useEditorSelector, useEditorStore } from "./store-context";
 import styles from "./editor.module.css";
 
-const SWATCHES = [
+export const SWATCHES = [
   "#ffffff",
   "#ff2d2d",
   "#ff9f1a",
@@ -17,15 +17,14 @@ const SWATCHES = [
 ];
 
 /**
- * Side panel: the colour for new clips, and the selected clip's colour,
- * times, fades and layer.
+ * The selected clip's colour, times, fades and layer. The colour for new
+ * clips is picked on the room screen's tool rail.
  */
 export function ClipInspector() {
   return (
-    <aside className={styles.inspector} aria-label="Clip inspector">
-      <NewClipColor />
+    <div className={styles.inspector} aria-label="Clip inspector">
       <SelectedClip />
-    </aside>
+    </div>
   );
 }
 
@@ -64,21 +63,6 @@ function ColorPicker({
   );
 }
 
-function NewClipColor() {
-  const store = useEditorStore();
-  const color = useEditorSelector((s) => s.clipColor);
-  return (
-    <section className={styles.inspectorSection}>
-      <h2 className={styles.inspectorTitle}>New clips</h2>
-      <ColorPicker
-        label="Colour"
-        value={color}
-        onChange={(c) => store.dispatch({ type: "setClipColor", color: c })}
-      />
-    </section>
-  );
-}
-
 function SelectedClip() {
   const store = useEditorStore();
   const clip = useEditorSelector((s) => {
@@ -91,7 +75,7 @@ function SelectedClip() {
       <section className={styles.inspectorSection}>
         <h2 className={styles.inspectorTitle}>Clip</h2>
         <p className={styles.inspectorEmpty}>
-          Draw with a clip tool, or click a clip on the timeline.
+          Draw on the room with a tool, or click a clip on the timeline.
         </p>
       </section>
     );

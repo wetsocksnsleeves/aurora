@@ -194,6 +194,15 @@ export class HostClient {
     return this.send({ type: "positioning", config });
   }
 
+  /**
+   * Load a show into the room, or reload it after saving (SPEC 2.5). Phones
+   * stay connected; the server answers with a new `session` message.
+   */
+  loadShow(showId: string): boolean {
+    this.update({ lastError: null });
+    return this.send({ type: "load", showId });
+  }
+
   /** Call on `visibilitychange`: a returning tab resyncs its clock. */
   setVisible(visible: boolean): void {
     if (visible && this.running) this.clock.onVisible();
@@ -400,11 +409,14 @@ export function createHostedSession(
   });
 }
 
-/** Deps for the real host page. Call only in the browser. */
+/**
+ * Deps for the real host page. Call only in the browser. The host token is
+ * kept in localStorage: a room outlives the tab (SPEC 2.5).
+ */
 export function browserHostDeps(): HostClientDeps {
   let storage: KeyValueStorage | null = null;
   try {
-    storage = window.sessionStorage;
+    storage = window.localStorage;
   } catch {
     storage = null;
   }

@@ -56,7 +56,7 @@ describe("custom server", () => {
   it("serves the home page over HTTP", async () => {
     const res = await fetch(`${server.httpUrl}/`);
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain("Aurora");
+    expect(await res.text()).toContain("lightshow");
   }, 60_000);
 
   it("leaves the Next HMR socket working after a page load", async () => {

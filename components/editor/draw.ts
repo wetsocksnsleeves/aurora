@@ -4,12 +4,12 @@ import { toPx, type Size } from "./geometry";
 /** Canvas drawing helpers shared by the layers in layers.ts and clip-layers.ts. */
 
 export const COLORS = {
-  background: "#111118",
+  background: "#070707",
   grid: "rgba(255,255,255,0.05)",
-  venueFill: "rgba(110,231,183,0.12)",
-  venueStroke: "rgba(110,231,183,0.7)",
-  selected: "#fbbf24",
-  draft: "#60a5fa",
+  venueFill: "rgba(74,222,128,0.1)",
+  venueStroke: "rgba(74,222,128,0.6)",
+  selected: "#ffffff",
+  draft: "#6dd5ff",
 };
 
 /** Trace a closed polygon path in pixel space. */

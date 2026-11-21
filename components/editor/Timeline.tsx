@@ -46,10 +46,10 @@ export function Timeline() {
       const instance = WaveSurferClass.create({
         container,
         url: audioUrl(fileId),
-        height: 96,
-        waveColor: "#4b5563",
-        progressColor: "#6ee7b7",
-        cursorColor: "#fbbf24",
+        height: 64,
+        waveColor: "rgba(255,255,255,0.28)",
+        progressColor: "rgba(255,255,255,0.62)",
+        cursorColor: "#ffffff",
         cursorWidth: 2,
         minPxPerSec: initial.zoomPxPerSec,
         dragToSeek: true,
@@ -81,7 +81,7 @@ export function Timeline() {
             secondaryLabelInterval: Number.MAX_SAFE_INTEGER,
             formatTimeCallback: (sec) =>
               formatTime((sec + originSec) * 1000).replace(/\.?0+$/, ""),
-            style: { color: "#9a9aa8" },
+            style: { color: "rgba(255,255,255,0.4)" },
           }),
         );
       };
