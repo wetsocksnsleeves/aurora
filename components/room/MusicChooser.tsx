@@ -16,12 +16,23 @@ import {
   useEditorSelector,
   useEditorStore,
 } from "@/components/editor/store-context";
+import { BUILTIN_TRACKS } from "@/lib/builtin-tracks";
 import type { Show } from "@/lib/types";
 import type { Toast } from "./edit-actions";
 import { pickMusic } from "./music";
 import styles from "./room.module.css";
 
 type Track = Show["audio"];
+
+/** The built-in tracks as show audio (without their file paths). */
+const BUILTIN: readonly Track[] = BUILTIN_TRACKS.map(
+  ({ fileId, durationMs, title, artist }) => ({
+    fileId,
+    durationMs,
+    ...(title ? { title } : {}),
+    ...(artist ? { artist } : {}),
+  }),
+);
 
 const OpenContext = createContext<() => void>(() => {});
 
@@ -67,7 +78,7 @@ export function MusicChooserProvider({
 
   const openChooser = useCallback(() => {
     const current = store.getState().show.audio.fileId;
-    const others = recent?.filter((t) => t.fileId !== current);
+    const others = recent?.concat(BUILTIN).filter((t) => t.fileId !== current);
     if (others && others.length === 0) {
       // Nothing to choose from: skip the dialog. Still inside the click, so
       // the browser lets the file picker open.
@@ -121,6 +132,16 @@ function ChooserDialog({
 }) {
   const current = useEditorSelector((s) => s.show.audio.fileId);
   const uploadRef = useRef<HTMLButtonElement>(null);
+  // Built-in tracks not already listed as recently used, by file or as an
+  // uploaded copy of the same song.
+  const builtin = BUILTIN.filter(
+    (b) =>
+      !recent?.some(
+        (t) =>
+          t.fileId === b.fileId ||
+          (t.title === b.title && t.artist === b.artist),
+      ),
+  );
 
   useEffect(() => {
     uploadRef.current?.focus();
@@ -169,37 +190,57 @@ function ChooserDialog({
           <p className={styles.note}>Music you add to a show appears here.</p>
         ) : null}
         {recent?.length ? (
-          <ul className={styles.musicList}>
-            {recent.map((track) => {
-              const isCurrent = track.fileId === current;
-              return (
-                <li key={track.fileId}>
-                  <button
-                    type="button"
-                    disabled={isCurrent}
-                    aria-current={isCurrent || undefined}
-                    onClick={() => onChoose(track)}
-                  >
-                    <TrackCover fileId={track.fileId} size={40} />
-                    <span className={styles.trackText}>
-                      <b>{track.title ?? "Untitled track"}</b>
-                      {track.artist ? <span>{track.artist}</span> : null}
-                    </span>
-                    <span className={styles.musicMeta}>
-                      {isCurrent
-                        ? "In this show"
-                        : track.durationMs > 0
-                          ? formatTime(track.durationMs).replace(/\.\d+$/, "")
-                          : ""}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+          <TrackList tracks={recent} current={current} onChoose={onChoose} />
+        ) : null}
+        {builtin.length ? (
+          <>
+            <p className={styles.label}>Built in</p>
+            <TrackList tracks={builtin} current={current} onChoose={onChoose} />
+          </>
         ) : null}
       </div>
     </>
+  );
+}
+
+function TrackList({
+  tracks,
+  current,
+  onChoose,
+}: {
+  tracks: readonly Track[];
+  current: string;
+  onChoose: (track: Track) => void;
+}) {
+  return (
+    <ul className={styles.musicList}>
+      {tracks.map((track) => {
+        const isCurrent = track.fileId === current;
+        return (
+          <li key={track.fileId}>
+            <button
+              type="button"
+              disabled={isCurrent}
+              aria-current={isCurrent || undefined}
+              onClick={() => onChoose(track)}
+            >
+              <TrackCover fileId={track.fileId} size={40} />
+              <span className={styles.trackText}>
+                <b>{track.title ?? "Untitled track"}</b>
+                {track.artist ? <span>{track.artist}</span> : null}
+              </span>
+              <span className={styles.musicMeta}>
+                {isCurrent
+                  ? "In this show"
+                  : track.durationMs > 0
+                    ? formatTime(track.durationMs).replace(/\.\d+$/, "")
+                    : ""}
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

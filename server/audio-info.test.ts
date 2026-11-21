@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { BUILTIN_TRACKS } from "@/lib/builtin-tracks";
 import { readAudioInfo, readCover } from "./audio-info";
 import { audioDir } from "./data-dir";
 import { withTempDataDir } from "./testing/temp-data-dir";
@@ -43,6 +44,16 @@ function write(ext: string, bytes: Uint8Array): string {
   fs.writeFileSync(path.join(audioDir(), fileId), bytes);
   return fileId;
 }
+
+describe("built-in tracks", () => {
+  it.each(BUILTIN_TRACKS)("$title ships with matching tags", async (track) => {
+    expect(fs.existsSync(track.path)).toBe(true);
+    const info = await readAudioInfo(track.fileId);
+    expect(info.title).toBe(track.title);
+    expect(info.artist).toBe(track.artist);
+    expect(info.picture?.mimeType).toBe("image/png");
+  });
+});
 
 describe("readCover", () => {
   it("finds an m4a cover in a moov atom after the audio data", async () => {
