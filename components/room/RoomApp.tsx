@@ -61,6 +61,8 @@ import { ShowControls } from "./ShowControls";
 import { MusicChooserProvider } from "./MusicChooser";
 import { ShowPicker } from "./ShowPicker";
 import { Timeline } from "./timeline/Timeline";
+import { CameraPanel } from "./camera/CameraPanel";
+import { useCamera } from "./camera/use-camera";
 import { useDecodedAudio, usePlayback } from "./timeline/playback";
 import { useRoomPointer } from "./use-room-pointer";
 import { useToast } from "./use-toast";
@@ -264,6 +266,21 @@ function Studio({
   const counts = useMemo(() => countByState(participants), [participants]);
   const canvasSize = useRef<Size>({ width: 0, height: 0 });
   const frameRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLElement>(null);
+  const camera = useCamera();
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [presenting, setPresenting] = useState(false);
+  useEffect(() => {
+    const onChange = () =>
+      setPresenting(document.fullscreenElement === stageRef.current);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+  /** The room (and camera) full screen, for casting; again to leave. */
+  const present = () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void stageRef.current?.requestFullscreen().catch(() => {});
+  };
   const [toastState, toast] = useToast();
   const fileId = useEditorSelector((s) => s.show.audio.fileId);
   const empty = useEditorSelector((s) => s.show.clips.length === 0);
@@ -368,6 +385,11 @@ function Studio({
   const screenShare = room
     ? Math.min(1, Math.max(0.02, screenM / room.widthM))
     : 0.34;
+  // The recorder reads the screen's width every frame.
+  const screenShareRef = useRef(screenShare);
+  useEffect(() => {
+    screenShareRef.current = screenShare;
+  }, [screenShare]);
 
   return (
     <main
@@ -395,6 +417,23 @@ function Studio({
             />
           </div>
           <div className={styles.actions}>
+            <button
+              type="button"
+              className={styles.ghost}
+              aria-pressed={cameraOpen}
+              title="Film the crowd beside the room, and record both"
+              onClick={() => {
+                if (cameraOpen) {
+                  camera.close();
+                  setCameraOpen(false);
+                } else {
+                  camera.open();
+                  setCameraOpen(true);
+                }
+              }}
+            >
+              Camera
+            </button>
             <a
               className={styles.ghost}
               href={screenHref}
@@ -429,7 +468,12 @@ function Studio({
 
         <div className={styles.studio}>
           <Library audio={decoded} disabled={locked} toast={toast} />
-          <section className={styles.stage} aria-label="Room">
+          <section
+            ref={stageRef}
+            className={styles.stage}
+            aria-label="Room"
+            data-camera={cameraOpen || undefined}
+          >
             <div ref={frameRef} className={styles.roomFrame}>
               <VenueCanvas
                 layers={ROOM_LAYERS}
@@ -461,6 +505,31 @@ function Studio({
                 ) : null}
               </VenueCanvas>
             </div>
+            {cameraOpen ? (
+              <CameraPanel
+                camera={camera}
+                frameRef={frameRef}
+                screenShare={() => screenShareRef.current}
+                audio={audio.audio}
+                onPresent={present}
+                presenting={presenting}
+                toast={toast}
+              />
+            ) : null}
+            {!cameraOpen ? (
+              <button
+                type="button"
+                className={styles.presentButton}
+                title={
+                  presenting
+                    ? "Leave full screen (Esc)"
+                    : "Show the room full screen, for casting"
+                }
+                onClick={present}
+              >
+                {presenting ? "Exit" : "Present"}
+              </button>
+            ) : null}
             {drawing && !locked ? (
               <p className={styles.drawHint}>
                 {tool === "brush"

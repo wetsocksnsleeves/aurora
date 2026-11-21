@@ -691,6 +691,219 @@
   aspect-ratio: 1;
 }
 
+/* Camera beside the room: both the same height, side by side. */
+.stage[data-camera] {
+  grid-template-columns: auto auto;
+  justify-content: center;
+  align-content: center;
+  gap: 20px;
+}
+
+.stage[data-camera] .roomFrame {
+  width: min(calc((100cqw - 20px) / 2.7778), 100cqh);
+}
+
+.cameraTile {
+  position: relative;
+  height: min(calc((100cqw - 20px) / 2.7778), 100cqh);
+  aspect-ratio: 16 / 9;
+  border-radius: 24px;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 20px 50px rgb(0 0 0 / 0.45);
+}
+
+.cameraTile[data-recording] {
+  box-shadow:
+    0 0 0 2px #ef4444,
+    0 20px 50px rgb(0 0 0 / 0.45);
+}
+
+.cameraTile video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.cameraMessage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--dim);
+}
+
+.recBadge {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.55);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.recBadge i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 8px #ef4444;
+  animation: blink 1s steps(2, start) infinite;
+}
+
+@keyframes blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+.cameraBar {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 16px;
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+
+.recButton,
+.cameraButton {
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+  background: rgb(255 255 255 / 0.08);
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.recButton:disabled,
+.cameraButton:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.recButton i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ef4444;
+}
+
+.recButton[data-on] {
+  background: #dc2626;
+}
+
+.recButton[data-on] i {
+  border-radius: 2px;
+  background: #fff;
+}
+
+.cameraSelect {
+  height: 32px;
+  max-width: 180px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 10px;
+  background: rgb(255 255 255 / 0.08);
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.cameraBar .spacer {
+  flex: 1;
+}
+
+.takes {
+  position: relative;
+}
+
+.takeList {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 21;
+  width: 300px;
+  max-height: 50cqh;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 16px;
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow);
+}
+
+.take {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.take > span {
+  flex: 1;
+}
+
+.take small {
+  color: var(--dim);
+}
+
+.presentButton {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 10px;
+  background: var(--glass);
+  color: var(--fg);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* Present: the room (and camera) alone, full screen, for casting. */
+.stage:fullscreen {
+  background: #000;
+  padding: 4vh 3vw;
+}
+
+.stage:fullscreen .toast,
+.stage:fullscreen .drawHint,
+.stage:fullscreen .roomSize {
+  display: none;
+}
+
 .canvasFill {
   position: absolute;
   inset: 0;
