@@ -159,7 +159,13 @@ export function drawPattern(
   if (qr) drawQr(ctx, scale, P, qr);
 }
 
-/** White card, square modules, and rounded finder squares to match the anchors. */
+/** Corner radius of an LED dot, as a share of its side. */
+const DOT_CORNER = DOT_ROUND / 2;
+
+/**
+ * White card, modules drawn like the LED dots (joined where they touch),
+ * and rounded finder squares to match the anchors.
+ */
 function drawQr(
   ctx: CanvasRenderingContext2D,
   scale: number,
@@ -183,18 +189,33 @@ function drawQr(
   ];
   const inFinder = (r: number, c: number) =>
     finders.some(([fr, fc]) => r >= fr && r < fr + 7 && c >= fc && c < fc + 7);
+  // Modules are LED-style dots that fill their cells, and neighbours join:
+  // a corner is only rounded where neither module beside it is dark.
+  const dark = (r: number, c: number) =>
+    r >= 0 && c >= 0 && r < n && c < n && qr[r]![c]! && !inFinder(r, c);
+  const round = cell * DOT_CORNER;
   ctx.fillStyle = "#000";
   ctx.beginPath();
   for (let r = 0; r < n; r++) {
     for (let c = 0; c < n; c++) {
-      if (qr[r]![c] && !inFinder(r, c)) {
-        ctx.rect(
-          x0 + (c + quiet) * cell,
-          y0 + (r + quiet) * cell,
-          cell + 0.5,
-          cell + 0.5,
-        );
-      }
+      if (!dark(r, c)) continue;
+      const up = dark(r - 1, c);
+      const down = dark(r + 1, c);
+      const left = dark(r, c - 1);
+      const right = dark(r, c + 1);
+      // A hair of overlap so joined modules show no seams.
+      ctx.roundRect(
+        x0 + (c + quiet) * cell,
+        y0 + (r + quiet) * cell,
+        cell + 0.5,
+        cell + 0.5,
+        [
+          !up && !left ? round : 0,
+          !up && !right ? round : 0,
+          !down && !right ? round : 0,
+          !down && !left ? round : 0,
+        ],
+      );
     }
   }
   ctx.fill();
