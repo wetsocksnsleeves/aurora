@@ -164,23 +164,10 @@ export function ParticipantApp({ code }: { code: string }) {
           data-screen="standby"
         >
           <h1 className={styles.bigTitle}>You’re in</h1>
-          <ol className={styles.steps}>
-            <li>
-              <span>
-                Turn your brightness <strong>UP to the MAX</strong>
-              </span>
-            </li>
-            <li>
-              <span>
-                Put your phone up, <strong>facing the screen</strong>
-              </span>
-            </li>
-            <li>
-              <span>
-                <strong>Enjoy</strong> the show
-              </span>
-            </li>
-          </ol>
+          <p className={styles.text}>
+            Turn your screen brightness all the way up and keep this page open.
+            The show starts on its own.
+          </p>
           {fullscreenLost ? (
             <p className={styles.hint}>Tap the screen to go fullscreen.</p>
           ) : null}
