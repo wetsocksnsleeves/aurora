@@ -91,7 +91,8 @@ export class FrameGrabber {
 
 // -- Field of view memory ----------------------------------------------------
 
-const LENS_KEY = "lightshow-lens";
+/** v2: measurements from before the close-range sweep fix are not trusted. */
+const LENS_KEY = "lightshow-lens-v2";
 
 /** How this phone knows its camera's field of view. */
 export type LensSource = "view" | "sweep" | "remembered" | "default";
@@ -112,7 +113,7 @@ export function rememberedLens(w: number, h: number): Lens {
       number
     >;
     const fov = saved[lensKey(w, h)];
-    if (typeof fov === "number" && fov > 20 && fov < 120) {
+    if (typeof fov === "number" && fov >= 50 && fov <= 85) {
       return { fov, source: "remembered" };
     }
   } catch {

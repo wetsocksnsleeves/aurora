@@ -57,7 +57,13 @@ type Component = {
   maxY: number;
 };
 
-export type Anchor = { x: number; y: number; size: number };
+/** An anchor found in the image: its centre, size, and the ring's pixel box. */
+export type Anchor = {
+  x: number;
+  y: number;
+  size: number;
+  box: { minX: number; minY: number; maxX: number; maxY: number };
+};
 
 type GridRead = { score: number; matches: Match[] };
 
@@ -354,6 +360,12 @@ export class Detector {
         x: (ring.x * ring.weight + core.x * core.weight) / tw,
         y: (ring.y * ring.weight + core.y * core.weight) / tw,
         size,
+        box: {
+          minX: ring.minX,
+          minY: ring.minY,
+          maxX: ring.maxX + 1,
+          maxY: ring.maxY + 1,
+        },
       });
     }
     return anchors;

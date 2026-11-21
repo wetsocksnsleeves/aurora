@@ -8,8 +8,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { VenueView } from "@/components/venue/VenueView";
-import type { Point } from "@/lib/types";
+import type { Point, PositioningConfig } from "@/lib/types";
 import { cameraSupported, requestMotionPermission } from "./camera-seat";
 import {
   KeepAwakeVideo,
@@ -28,6 +27,7 @@ import {
 import { Playback } from "./Playback";
 import { SeatScanner } from "./SeatScanner";
 import styles from "./participant.module.css";
+import { Label, LedLoader, RoomView, Shell, Stat } from "./visuals";
 
 /**
  * The participant page (SPEC 2.3): one client component, no UI libraries.
@@ -44,7 +44,8 @@ export function ParticipantApp({ code }: { code: string }) {
   // The seat comes from the camera (SPEC 2.4): the motion permission asked
   // for in the tap that opened the scanner, and what it found.
   const [scan, setScan] = useState<Promise<boolean> | null>(null);
-  const [cameraFound, setCameraFound] = useState<string | null>(null);
+  // How the last scan knew the camera's field of view, for the result screen.
+  const [lensNote, setLensNote] = useState<string | null>(null);
   const keepAwake = useKeepAwake(snapshot.readyTapped);
   const fullscreenLost = useFullscreenLost();
 
@@ -76,9 +77,9 @@ export function ParticipantApp({ code }: { code: string }) {
   }, [snapshot.readyTapped, rearm]);
 
   const onCameraFound = useCallback(
-    (seat: Point, summary: string) => {
+    (seat: Point, lens: string) => {
       client.setSeat(seat);
-      setCameraFound(summary);
+      setLensNote(lens);
       setScan(null);
     },
     [client],
@@ -101,15 +102,16 @@ export function ParticipantApp({ code }: { code: string }) {
   switch (screen) {
     case "connecting":
       return (
-        <Message screen={screen} title="Connecting…">
-          Joining show {code}
-        </Message>
+        <Shell screen={screen}>
+          <LedLoader />
+          <Label>Connecting</Label>
+        </Shell>
       );
     case "not-found":
       return (
         <Message screen={screen} title="Show not found">
-          No show is running with code {code}. Check the code on the big screen
-          and scan again.
+          This show isn’t running any more. Scan the code on the big screen
+          again.
         </Message>
       );
     case "replaced":
@@ -133,7 +135,7 @@ export function ParticipantApp({ code }: { code: string }) {
       return (
         <SeatFinder
           snapshot={snapshot}
-          cameraFound={cameraFound}
+          lensNote={lensNote}
           // Motion permission must be asked inside the tap itself (iOS).
           onScan={
             cameraSupported() && snapshot.positioning
@@ -147,43 +149,43 @@ export function ParticipantApp({ code }: { code: string }) {
       );
     case "syncing":
       return (
-        <main
-          className={`${styles.page} ${styles.syncing}`}
-          data-screen="syncing"
-        >
-          <div className={styles.spinner} aria-hidden />
-          <h1 className={styles.title}>Getting in sync…</h1>
-          <p className={styles.text}>Keep this page open.</p>
+        <Shell screen="syncing">
+          <LedLoader />
+          <h1 className={styles.title}>Getting in sync</h1>
+          <Label>Keep this page open</Label>
           <ReconnectNote snapshot={snapshot} />
-        </main>
+        </Shell>
       );
     case "standby":
       return (
-        <main
-          className={`${styles.page} ${styles.standby}`}
-          data-screen="standby"
+        <Shell
+          screen="standby"
+          tone="ready"
+          actions={
+            <button
+              type="button"
+              className={styles.secondary}
+              onClick={() => setEditingSeat(true)}
+            >
+              Find my seat again
+            </button>
+          }
         >
-          <h1 className={styles.bigTitle}>You’re in</h1>
-          <p className={styles.text}>
-            Turn your screen brightness all the way up and keep this page open.
-            The show starts on its own.
-          </p>
+          <div className={styles.readyMark} aria-hidden>
+            {Array.from({ length: 9 }, (_, i) => (
+              <i key={i} />
+            ))}
+          </div>
+          <h1 className={styles.hero}>You’re in</h1>
+          <ol className={styles.steps}>
+            <li>Turn your brightness all the way up</li>
+            <li>Hold your phone up</li>
+            <li>Enjoy the show</li>
+          </ol>
           {fullscreenLost ? (
             <p className={styles.hint}>Tap the screen to go fullscreen.</p>
           ) : null}
-          {keepAwake.held ? null : (
-            <p className={styles.hint}>
-              Keep your screen on: tap it now and then so it doesn’t lock.
-            </p>
-          )}
-          <button
-            type="button"
-            className={styles.linkButton}
-            onClick={() => setEditingSeat(true)}
-          >
-            Find my seat again
-          </button>
-        </main>
+        </Shell>
       );
     case "playing":
       return (
@@ -209,91 +211,117 @@ function Message({
   children: ReactNode;
 }) {
   return (
-    <main className={styles.page} data-screen={screen}>
+    <Shell screen={screen}>
       <h1 className={styles.title}>{title}</h1>
       <p className={styles.text}>{children}</p>
-    </main>
+    </Shell>
   );
 }
 
+/** Metres from the screen for a venue point (the inverse of the camera's mapping). */
+function metres(seat: Point, config: PositioningConfig) {
+  return {
+    back: seat.y * config.venueDepthM,
+    across: (seat.x - 0.5) * config.venueWidthM,
+  };
+}
+
 /**
- * Where the participant is, found with the camera (SPEC 2.4). The map only
- * shows the result; the seat comes from pointing at the big screen.
+ * Finding the participant's spot with the camera (SPEC 2.4). Before a scan:
+ * what to point at. After: where they are, in the room and in metres.
  */
 function SeatFinder({
   snapshot,
-  cameraFound,
+  lensNote,
   onScan,
   editing,
   onReady,
   onDone,
 }: {
   snapshot: ParticipantSnapshot;
-  /** What the last scan found, in words. */
-  cameraFound: string | null;
+  /** How the last scan knew the camera's field of view. */
+  lensNote: string | null;
   /** Opens the camera, or null where the camera can't be used. */
   onScan: (() => void) | null;
   editing: boolean;
   onReady: () => void;
   onDone: () => void;
 }) {
-  const seat = snapshot.seat;
-  return (
-    <main className={`${styles.page} ${styles.picker}`} data-screen="seat">
-      <header className={styles.header}>
-        <h1 className={styles.title}>
-          {seat ? "Found you" : "Find your seat"}
-        </h1>
-        <p className={styles.text}>
-          {!onScan
-            ? "Finding your seat needs the camera. Open this page from the QR code on the big screen, in your phone's browser."
-            : cameraFound
-              ? `You're ${cameraFound}. The stage is at the top.`
-              : seat
-                ? "That's your spot. The stage is at the top."
-                : "Point your camera at the big screen and we'll work out where you are."}
-        </p>
-      </header>
-      <div className={styles.map}>
-        {snapshot.venue ? (
-          <VenueView
-            venue={snapshot.venue}
-            seat={seat}
-            label={seat ? "Seating map with your spot" : "Seating map"}
-          />
-        ) : null}
-      </div>
-      <footer className={styles.footer}>
-        <ReconnectNote snapshot={snapshot} />
-        {onScan && seat ? (
+  const { seat, positioning } = snapshot;
+
+  if (!seat || !positioning) {
+    return (
+      <Shell
+        screen="seat"
+        actions={
           <button
             type="button"
-            className={styles.secondaryButton}
-            onClick={onScan}
-          >
-            Scan again
-          </button>
-        ) : null}
-        {!seat ? (
-          <button
-            type="button"
-            className={styles.button}
+            className={styles.primary}
             disabled={!onScan}
             onClick={onScan ?? undefined}
           >
             Find my seat
           </button>
-        ) : editing ? (
-          <button type="button" className={styles.button} onClick={onDone}>
-            Done
-          </button>
-        ) : (
-          <button type="button" className={styles.button} onClick={onReady}>
-            Ready
-          </button>
-        )}
-      </footer>
-    </main>
+        }
+      >
+        <h1 className={styles.title}>Find your seat</h1>
+        <p className={styles.text}>
+          {onScan
+            ? "Point your camera at the big screen."
+            : "Finding your seat needs the camera. Open this page from the QR code on the big screen, in your phone’s browser."}
+        </p>
+        <ReconnectNote snapshot={snapshot} />
+      </Shell>
+    );
+  }
+
+  const { back, across } = metres(seat, positioning);
+  return (
+    <Shell
+      screen="seat"
+      actions={
+        <>
+          {onScan ? (
+            <button type="button" className={styles.secondary} onClick={onScan}>
+              Scan again
+            </button>
+          ) : null}
+          {editing ? (
+            <button type="button" className={styles.primary} onClick={onDone}>
+              Done
+            </button>
+          ) : (
+            <button type="button" className={styles.primary} onClick={onReady}>
+              Ready
+            </button>
+          )}
+        </>
+      }
+    >
+      <h1 className={styles.title}>Found you</h1>
+      <RoomView
+        back={back}
+        across={across}
+        // The target spans about 65% of the screen's width.
+        screenWidthM={positioning.targetWidthM / 0.65}
+      />
+      <div className={styles.stats}>
+        <Stat value={back.toFixed(1)} unit="m" caption="From the screen" />
+        <Stat
+          value={Math.abs(across).toFixed(1)}
+          unit="m"
+          caption={
+            Math.abs(across) < 0.3
+              ? "Centre"
+              : across < 0
+                ? "Left of centre"
+                : "Right of centre"
+          }
+        />
+      </div>
+      {lensNote ? <p className={styles.fine}>{lensNote}</p> : null}
+      <ReconnectNote snapshot={snapshot} />
+    </Shell>
   );
 }
 
