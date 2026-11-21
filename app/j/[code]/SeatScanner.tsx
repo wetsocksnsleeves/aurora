@@ -27,6 +27,7 @@ import {
   FrameGrabber,
   avoidCamera,
   followMotion,
+  forgetCamera,
   openCamera,
   openRearCamera,
   plausibleFov,
@@ -69,6 +70,8 @@ const MOVING_DPS = 15;
  * another back camera, switch to it. Main cameras are 60 to 85 degrees.
  */
 const ULTRA_WIDE_FOV = 95;
+/** No picture this long after the camera opens: it isn't working. */
+const NO_PICTURE_MS = 8000;
 /** Rough camera-to-callback delay when the browser doesn't report it. */
 const FRAME_LATENCY_MS = 40;
 /**
@@ -433,6 +436,18 @@ export function SeatScanner({
       video.srcObject = next;
       await video.play().catch(() => {});
       reveal(2);
+      // Fade in anyway if frame callbacks never come.
+      setTimeout(() => {
+        if (!stopped) setVideoReady(true);
+      }, 1500);
+      // A camera that shows nothing: forget it and say so, not a black screen.
+      const gen = generation;
+      const seenBefore = frames;
+      setTimeout(() => {
+        if (stopped || gen !== generation || frames > seenBefore) return;
+        forgetCamera();
+        setError("The camera didn't start. Go back and try again.");
+      }, NO_PICTURE_MS);
       lens = rememberedLens(cameraLabel, video.videoWidth, video.videoHeight);
       runLoop();
     };
@@ -484,7 +499,9 @@ export function SeatScanner({
     void (async () => {
       if (await motion) stopMotion = followMotion(gyro);
       try {
-        camera = await openRearCamera();
+        camera = await openRearCamera((line) => {
+          if (debugOn) setDebug(`camera: ${line}…`);
+        });
         stream = camera.stream;
         cameraLabel = camera.label;
         cameras = camera.cameras;
