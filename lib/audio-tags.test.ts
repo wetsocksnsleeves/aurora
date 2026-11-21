@@ -233,11 +233,11 @@ describe("readAudioTags", () => {
     expect(tags.picture).toBeUndefined();
   });
 
-  it("finds the cover in the built-in PHONK track", () => {
+  it("reads the built-in mixtape, which has no title or cover", () => {
     const bytes = new Uint8Array(
-      fs.readFileSync("public/builtin-audio/phonk-da-favelada.mp3"),
+      fs.readFileSync("public/builtin-audio/mixtape.mp3"),
     );
-    expect(readAudioTags(bytes).picture?.mimeType).toBe("image/png");
+    expect(readAudioTags(bytes)).toEqual({});
   });
 });
 

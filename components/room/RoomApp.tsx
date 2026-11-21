@@ -395,10 +395,6 @@ function Studio({
             />
           </div>
           <div className={styles.actions}>
-            <span className={styles.pill} data-testid="room-count">
-              <i aria-hidden />
-              {inRoom} {inRoom === 1 ? "phone" : "phones"}
-            </span>
             <a
               className={styles.ghost}
               href={screenHref}
