@@ -23,6 +23,7 @@ import {
   type Toast,
 } from "../edit-actions";
 import { Icon, type IconName } from "../icons";
+import { TrackCover, useMusicChooser } from "../MusicChooser";
 import styles from "./timeline.module.css";
 
 /** Undo, editing, play, time, snapping and zoom, above the tracks. */
@@ -120,12 +121,47 @@ export function TimelineToolbar({
         </button>
       )}
       <TimeReadout />
+      <NowPlaying editable={editable} />
       <span className={styles.spacer} />
       {readOnly ? null : <SnapControl />}
       <span className={styles.sep} />
       <Zoom onFit={onFit} />
       <Shortcuts />
     </div>
+  );
+}
+
+/** The show's track on the bar; click it to change the music. */
+function NowPlaying({ editable }: { editable: boolean }) {
+  const chooseMusic = useMusicChooser();
+  const fileId = useEditorSelector((s) => s.show.audio.fileId);
+  const title = useEditorSelector((s) => s.show.audio.title);
+  const artist = useEditorSelector((s) => s.show.audio.artist);
+  if (!fileId) return null;
+  const name = title ?? "Untitled track";
+  const body = (
+    <>
+      <TrackCover fileId={fileId} size={28} />
+      <span className={styles.nowPlayingText}>
+        <b>{name}</b>
+        {artist ? <span> · {artist}</span> : null}
+      </span>
+    </>
+  );
+  const label = artist ? `${name} by ${artist}` : name;
+  return editable ? (
+    <button
+      type="button"
+      className={styles.nowPlaying}
+      title={`${label} · click to change the music`}
+      onClick={chooseMusic}
+    >
+      {body}
+    </button>
+  ) : (
+    <span className={styles.nowPlaying} title={label}>
+      {body}
+    </span>
   );
 }
 

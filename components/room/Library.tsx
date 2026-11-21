@@ -16,7 +16,8 @@ import {
   type Effect,
 } from "./effects";
 import { Icon } from "./icons";
-import { createFromMusic, pickMusic } from "./music";
+import { createFromMusic } from "./music";
+import { useMusicChooser } from "./MusicChooser";
 import { setDraggingEffect } from "./timeline/Timeline";
 import type { DecodedAudio } from "./timeline/playback";
 import styles from "./room.module.css";
@@ -38,11 +39,12 @@ export function Library({
   const color = useEditorSelector((s) => s.clipColor);
   const tool = useEditorSelector((s) => s.tool);
   const hasMusic = useEditorSelector((s) => s.show.audio.fileId !== "");
+  const chooseMusic = useMusicChooser();
   const [creating, setCreating] = useState(false);
 
   const create = async () => {
     if (!hasMusic) {
-      pickMusic(store, toast);
+      chooseMusic();
       return;
     }
     if (!audio) {

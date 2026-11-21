@@ -493,10 +493,12 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
       };
 
     case "setShowAudio": {
-      const { fileId, durationMs } = state.show.audio;
+      const { fileId, durationMs, title, artist } = state.show.audio;
       if (
         fileId === action.audio.fileId &&
-        durationMs === action.audio.durationMs
+        durationMs === action.audio.durationMs &&
+        title === action.audio.title &&
+        artist === action.audio.artist
       )
         return state;
       const next = withShow(state, { ...state.show, audio: action.audio });

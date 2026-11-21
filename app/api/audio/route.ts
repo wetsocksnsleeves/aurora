@@ -1,4 +1,6 @@
+import { readAudioInfo } from "@/server/audio-info";
 import { audioExtFor, MAX_AUDIO_BYTES, saveAudio } from "@/server/audio-store";
+import { listRecentAudio } from "@/server/db";
 import {
   errorResponse,
   readBodyWithLimit,
@@ -7,6 +9,29 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/**
+ * The music used by saved shows, newest first: `{ tracks: Show["audio"][] }`.
+ * A track saved without a title or artist gets them from the file's tags.
+ */
+export async function GET(request: Request): Promise<Response> {
+  const refused = guardApiRequest(request, { write: false });
+  if (refused) return refused;
+  const tracks = await Promise.all(
+    listRecentAudio().map(async (track) => {
+      if (track.title && track.artist) return track;
+      const tags = await readAudioInfo(track.fileId);
+      const title = track.title ?? tags.title;
+      const artist = track.artist ?? tags.artist;
+      return {
+        ...track,
+        ...(title ? { title } : {}),
+        ...(artist ? { artist } : {}),
+      };
+    }),
+  );
+  return Response.json({ tracks });
+}
 
 /**
  * Upload an audio file as multipart form data with the file in the `file`

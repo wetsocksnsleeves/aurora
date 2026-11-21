@@ -612,6 +612,11 @@ function text(v: Rec, key: string): string {
   return value;
 }
 
+/** `{ [key]: value }` when `v[key]` is a string, `{}` when it is absent. */
+function optionalText(v: Rec, key: string): Record<string, string> {
+  return v[key] === undefined ? {} : { [key]: text(v, key) };
+}
+
 function show(value: unknown): Show {
   if (!isRecord(value)) throw new InvalidMessage("`show` must be an object");
   const audio = rec(value, "audio");
@@ -622,6 +627,8 @@ function show(value: unknown): Show {
     audio: {
       fileId: text(audio, "fileId"),
       durationMs: num(audio, "durationMs"),
+      ...optionalText(audio, "title"),
+      ...optionalText(audio, "artist"),
     },
     clips: arr(value, "clips").map(clip),
     createdAt: text(value, "createdAt"),

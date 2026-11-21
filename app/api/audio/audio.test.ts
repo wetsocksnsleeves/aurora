@@ -1,8 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import type { Show } from "@/lib/types";
 import { MAX_AUDIO_BYTES } from "@/server/audio-store";
+import { createShow } from "@/server/db";
 import { withTempDataDir } from "@/server/testing/temp-data-dir";
+import * as cover from "./[fileId]/cover/route";
 import * as item from "./[fileId]/route";
 import * as upload from "./route";
 
@@ -39,6 +42,98 @@ async function uploadMp3(): Promise<string> {
   expect(body.url).toBe(`/api/audio/${body.fileId}`);
   return body.fileId;
 }
+
+describe("GET /api/audio", () => {
+  const pause = () => new Promise((r) => setTimeout(r, 5));
+
+  it("lists the music used by shows, newest first, once per file", async () => {
+    // An mp3 whose only tag is a title, saved by a show without one.
+    const text = [0, ...Array.from("From Tags", (c) => c.charCodeAt(0))];
+    const tagged = Uint8Array.from([
+      ...Array.from("ID3", (c) => c.charCodeAt(0)),
+      ...[3, 0, 0, 0, 0, 0, 10 + text.length],
+      ...Array.from("TIT2", (c) => c.charCodeAt(0)),
+      ...[0, 0, 0, text.length, 0, 0],
+      ...text,
+    ]);
+    const up = await upload.POST(
+      uploadRequest(new File([tagged], "t.mp3", { type: "audio/mpeg" })),
+    );
+    const taggedId = ((await up.json()) as { fileId: string }).fileId;
+    const a = await uploadMp3();
+    const b = await uploadMp3();
+
+    createShow({ audio: { fileId: a, durationMs: 1000, title: "Song A" } });
+    await pause();
+    createShow({ audio: { fileId: taggedId, durationMs: 3000 } });
+    await pause();
+    createShow({ audio: { fileId: b, durationMs: 2000, artist: "B" } });
+    await pause();
+    createShow({ audio: { fileId: "", durationMs: 5000 } });
+    await pause();
+    // A newer show reuses A without a title: the older title still shows.
+    createShow({ audio: { fileId: a, durationMs: 1000 } });
+
+    const res = await upload.GET(new Request("http://localhost/api/audio"));
+    expect(res.status).toBe(200);
+    const { tracks } = (await res.json()) as { tracks: Show["audio"][] };
+    expect(tracks).toEqual([
+      { fileId: a, durationMs: 1000, title: "Song A" },
+      { fileId: b, durationMs: 2000, artist: "B" },
+      { fileId: taggedId, durationMs: 3000, title: "From Tags" },
+    ]);
+  });
+});
+
+describe("/api/audio/<fileId>/cover", () => {
+  it("serves the cover embedded in the audio file", async () => {
+    const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 7];
+    const apic = [
+      0,
+      ...Array.from("image/png", (c) => c.charCodeAt(0)),
+      0,
+      3,
+      0,
+      ...png,
+    ];
+    const tag = Uint8Array.from([
+      ...Array.from("ID3", (c) => c.charCodeAt(0)),
+      3,
+      0,
+      0,
+      0,
+      0,
+      0,
+      10 + apic.length,
+      ...Array.from("APIC", (c) => c.charCodeAt(0)),
+      0,
+      0,
+      0,
+      apic.length,
+      0,
+      0,
+      ...apic,
+    ]);
+    const up = await upload.POST(
+      uploadRequest(new File([tag, bytes], "t.mp3", { type: "audio/mpeg" })),
+    );
+    const { fileId } = (await up.json()) as { fileId: string };
+    const res = await cover.GET(getRequest(), ctx(fileId));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/png");
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(
+      Uint8Array.from(png),
+    );
+  });
+
+  it("replies 404 when the file has no cover or doesn't exist", async () => {
+    const fileId = await uploadMp3();
+    expect((await cover.GET(getRequest(), ctx(fileId))).status).toBe(404);
+    const missing = "00000000-0000-0000-0000-000000000000.mp3";
+    expect((await cover.GET(getRequest(), ctx(missing))).status).toBe(404);
+    expect((await cover.GET(getRequest(), ctx("../x"))).status).toBe(404);
+  });
+});
 
 describe("/api/audio", () => {
   it("stores the upload under data/audio/<id>.<ext>", async () => {

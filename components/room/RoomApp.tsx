@@ -58,6 +58,7 @@ import { Library } from "./Library";
 import { ROOM_LAYERS } from "./room-layers";
 import { Settings } from "./Settings";
 import { ShowControls } from "./ShowControls";
+import { MusicChooserProvider } from "./MusicChooser";
 import { ShowPicker } from "./ShowPicker";
 import { Timeline } from "./timeline/Timeline";
 import { useDecodedAudio, usePlayback } from "./timeline/playback";
@@ -373,123 +374,122 @@ function Studio({
       className={`${styles.room} ${body.className}`}
       data-playing={playing || undefined}
     >
-      <header className={styles.bar}>
-        <div className={styles.left}>
-          <span className={`${styles.mark} ${wordmark.className}`}>
-            lightshow
-          </span>
-          <ShowPicker
-            currentId={session.showId}
-            readOnly={readOnly}
-            disabled={playing || connection !== "open"}
-            beforeSwitch={sync.flush}
-            onLoad={(id) => client.loadShow(id)}
-          />
-          <SyncStatus
-            state={sync.state}
-            error={sync.error}
-            readOnly={readOnly}
-          />
-        </div>
-        <div className={styles.actions}>
-          <a
-            className={styles.ghost}
-            href={screenHref}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Open big screen
-          </a>
-          <Settings
-            client={client}
-            session={session}
-            audio={audio}
-            clickOn={clickOn}
-            setClickOn={setClickOn}
-            onNewRoom={onNewRoom}
-          />
-          <ShowControls
-            client={client}
-            snapshot={snapshot}
-            counts={counts}
-            show={session.show}
-            ready={sync.state === "synced" || sync.state === "error"}
-            onStart={() => {
-              // The click is the gesture that lets the AudioContext run.
-              void audio.audio.unlock();
-              store.dispatch({ type: "setPlaying", playing: false });
-              client.startShow();
-            }}
-          />
-        </div>
-      </header>
-
-      <div className={styles.studio}>
-        <Library audio={decoded} disabled={locked} toast={toast} />
-        <section className={styles.stage} aria-label="Room">
-          <div ref={frameRef} className={styles.roomFrame}>
-            <VenueCanvas
-              layers={ROOM_LAYERS}
-              className={styles.canvasFill}
-              onResize={(size) => {
-                canvasSize.current = size;
-              }}
-            >
-              <CrowdCanvas
-                client={client}
-                participants={participants}
-                liveShow={liveShow}
-                T0={T0}
-                dragged={dragged}
-              />
-              <div
-                className={styles.screenBar}
-                style={{ width: `${screenShare * 100}%` }}
-                aria-hidden
-              />
-              {room ? (
-                <p className={styles.roomSize}>
-                  {metres(room.widthM)} across · {metres(room.depthM)} deep
-                </p>
-              ) : null}
-              <p className={styles.screenTag}>Screen</p>
-              {empty && !readOnly && !drawing && !playing ? (
-                <Coach
-                  phonesIn={inRoom}
-                  screenHref={screenHref}
-                  toast={toast}
-                />
-              ) : null}
-            </VenueCanvas>
+      {/* Inside <main>, so the dialog gets the room's colour variables. */}
+      <MusicChooserProvider toast={toast}>
+        <header className={styles.bar}>
+          <div className={styles.left}>
+            <span className={`${styles.mark} ${wordmark.className}`}>
+              lightshow
+            </span>
+            <ShowPicker
+              currentId={session.showId}
+              readOnly={readOnly}
+              disabled={playing || connection !== "open"}
+              beforeSwitch={sync.flush}
+              onLoad={(id) => client.loadShow(id)}
+            />
+            <SyncStatus
+              state={sync.state}
+              error={sync.error}
+              readOnly={readOnly}
+            />
           </div>
-          {drawing && !locked ? (
-            <p className={styles.drawHint}>
-              {tool === "brush"
-                ? "Paint an area on the room."
-                : "Drag a box on the room, or click its corners and press Enter."}{" "}
-              <span>Esc to cancel</span>
-            </p>
-          ) : null}
-          {toastState ? (
-            <div key={toastState.id} className={styles.toast} role="status">
-              {toastState.message}
-              {toastState.undoable ? <span> · ⌘Z to undo</span> : null}
+          <div className={styles.actions}>
+            <a
+              className={styles.ghost}
+              href={screenHref}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open big screen
+            </a>
+            <Settings
+              client={client}
+              session={session}
+              audio={audio}
+              clickOn={clickOn}
+              setClickOn={setClickOn}
+              onNewRoom={onNewRoom}
+            />
+            <ShowControls
+              client={client}
+              snapshot={snapshot}
+              counts={counts}
+              show={session.show}
+              ready={sync.state === "synced" || sync.state === "error"}
+              onStart={() => {
+                // The click is the gesture that lets the AudioContext run.
+                void audio.audio.unlock();
+                store.dispatch({ type: "setPlaying", playing: false });
+                client.startShow();
+              }}
+            />
+          </div>
+        </header>
+
+        <div className={styles.studio}>
+          <Library audio={decoded} disabled={locked} toast={toast} />
+          <section className={styles.stage} aria-label="Room">
+            <div ref={frameRef} className={styles.roomFrame}>
+              <VenueCanvas
+                layers={ROOM_LAYERS}
+                className={styles.canvasFill}
+                onResize={(size) => {
+                  canvasSize.current = size;
+                }}
+              >
+                <CrowdCanvas
+                  client={client}
+                  participants={participants}
+                  liveShow={liveShow}
+                  T0={T0}
+                  dragged={dragged}
+                />
+                <div
+                  className={styles.screenBar}
+                  style={{ width: `${screenShare * 100}%` }}
+                  aria-hidden
+                />
+                {room ? (
+                  <p className={styles.roomSize}>
+                    {metres(room.widthM)} across · {metres(room.depthM)} deep
+                  </p>
+                ) : null}
+                <p className={styles.screenTag}>Screen</p>
+                {empty && !readOnly && !drawing && !playing ? (
+                  <Coach phonesIn={inRoom} screenHref={screenHref} />
+                ) : null}
+              </VenueCanvas>
             </div>
-          ) : null}
-        </section>
-        <Inspector
-          counts={counts}
-          playing={playing}
-          readOnly={readOnly}
-          toast={toast}
-        />
-        <Timeline
-          audio={decoded}
-          locked={playing}
-          readOnly={readOnly}
-          toast={toast}
-        />
-      </div>
+            {drawing && !locked ? (
+              <p className={styles.drawHint}>
+                {tool === "brush"
+                  ? "Paint an area on the room."
+                  : "Drag a box on the room, or click its corners and press Enter."}{" "}
+                <span>Esc to cancel</span>
+              </p>
+            ) : null}
+            {toastState ? (
+              <div key={toastState.id} className={styles.toast} role="status">
+                {toastState.message}
+                {toastState.undoable ? <span> · ⌘Z to undo</span> : null}
+              </div>
+            ) : null}
+          </section>
+          <Inspector
+            counts={counts}
+            playing={playing}
+            readOnly={readOnly}
+            toast={toast}
+          />
+          <Timeline
+            audio={decoded}
+            locked={playing}
+            readOnly={readOnly}
+            toast={toast}
+          />
+        </div>
+      </MusicChooserProvider>
     </main>
   );
 }

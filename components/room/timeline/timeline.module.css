@@ -96,6 +96,48 @@
   color: var(--dim);
 }
 
+.nowPlaying {
+  min-width: 0;
+  max-width: 520px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 8px;
+  padding: 0 12px 0 4px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+button.nowPlaying {
+  cursor: pointer;
+}
+
+button.nowPlaying:hover {
+  border-color: var(--line);
+  background: rgb(255 255 255 / 0.05);
+}
+
+.nowPlayingText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nowPlayingText b {
+  font-weight: 500;
+}
+
+.nowPlayingText span {
+  color: var(--dim);
+}
+
 .snap,
 .zoom {
   display: inline-flex;

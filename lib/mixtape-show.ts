@@ -22,6 +22,8 @@ export const MIXTAPE_SHOW: Show = {
   audio: {
     fileId: MIXTAPE_AUDIO_FILE_ID,
     durationMs: mixtape.durationMs,
+    title: "Mixtape",
+    artist: "2hollis, 2KE, chandol",
   },
   clips: mixtape.clips as Clip[],
   createdAt: "2026-11-21T00:00:00.000Z",

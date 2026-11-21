@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { BUILTIN_TRACKS } from "@/lib/builtin-tracks";
 import { MIXTAPE_AUDIO_FILE_ID } from "@/lib/mixtape-show";
 import { audioDir } from "./data-dir";
 
@@ -60,6 +61,7 @@ export function contentTypeFor(fileId: string): string {
 /** Audio shipped with the app for built-in shows, by file id. Paths are relative to the working directory. */
 const BUILTIN_AUDIO: Record<string, string> = {
   [MIXTAPE_AUDIO_FILE_ID]: "public/builtin-audio/mixtape.mp3",
+  ...Object.fromEntries(BUILTIN_TRACKS.map((t) => [t.fileId, t.path])),
 };
 
 export function audioFilePath(fileId: string): string {

@@ -56,6 +56,25 @@ describe("/api/shows", () => {
     expect(show.createdAt).toBe(show.updatedAt);
   });
 
+  it("keeps the track title and artist, trimmed", async () => {
+    const audio = {
+      fileId: "6d0f6c5e-3b1a-4c8e-9a52-7f4e1b2d9c30.mp3",
+      durationMs: 1_000,
+      title: "  Song  ",
+      artist: "",
+    };
+    const show = await create({ audio });
+    expect(show.audio).toEqual({
+      fileId: audio.fileId,
+      durationMs: 1_000,
+      title: "Song",
+    });
+    const res = await collection.POST(
+      jsonRequest("POST", { audio: { ...audio, title: "x".repeat(201) } }),
+    );
+    expect(res.status).toBe(400);
+  });
+
   it("creates a show with a name and venue, and reads it back", async () => {
     const created = await create({ name: "  Finale  ", venue });
     expect(created.name).toBe("Finale");

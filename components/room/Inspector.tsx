@@ -19,7 +19,7 @@ import {
 } from "./edit-actions";
 import { SWATCHES } from "./effects";
 import { ClipIcon } from "./icons";
-import { pickMusic } from "./music";
+import { TrackCover, useMusicChooser } from "./MusicChooser";
 import styles from "./room.module.css";
 
 /**
@@ -68,7 +68,7 @@ export function Inspector({
       ) : clip ? (
         <ClipPanel clip={clip} toast={toast} />
       ) : (
-        <ShowPanel toast={toast} />
+        <ShowPanel />
       )}
     </aside>
   );
@@ -490,10 +490,34 @@ function BlinkFields({
   );
 }
 
-function ShowPanel({ toast }: { toast: Toast }) {
+/** The show's track: cover art (if the file has some), title and artist. */
+function TrackCard({
+  fileId,
+  title,
+  artist,
+}: {
+  fileId: string;
+  title?: string;
+  artist?: string;
+}) {
+  return (
+    <div className={styles.track}>
+      <TrackCover fileId={fileId} size={44} />
+      <div className={styles.trackText}>
+        <b title={title}>{title ?? "Untitled track"}</b>
+        {artist ? <span title={artist}>{artist}</span> : null}
+      </div>
+    </div>
+  );
+}
+
+function ShowPanel() {
   const store = useEditorStore();
   const fileId = useEditorSelector((s) => s.show.audio.fileId);
   const durationMs = useEditorSelector((s) => s.show.audio.durationMs);
+  const title = useEditorSelector((s) => s.show.audio.title);
+  const artist = useEditorSelector((s) => s.show.audio.artist);
+  const chooseMusic = useMusicChooser();
   const status = useEditorSelector((s) => s.audioStatus);
   const error = useEditorSelector((s) => s.audioError);
   const gesture = useGesture();
@@ -515,10 +539,13 @@ function ShowPanel({ toast }: { toast: Toast }) {
                   : formatTime(durationMs).replace(/\.\d+$/, "")
         }
       >
+        {fileId ? (
+          <TrackCard fileId={fileId} title={title} artist={artist} />
+        ) : null}
         <button
           type="button"
           className={fileId ? styles.ghost : styles.primary}
-          onClick={() => pickMusic(store, toast)}
+          onClick={chooseMusic}
         >
           {fileId ? "Replace music" : "Add music"}
         </button>

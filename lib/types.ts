@@ -80,7 +80,14 @@ export type Show = {
   id: string;
   name: string;
   venue: Venue;
-  audio: { fileId: string; durationMs: number };
+  audio: {
+    fileId: string;
+    durationMs: number;
+    /** Track name from the file's tags, or its file name. */
+    title?: string;
+    /** From the file's tags, when it has one. */
+    artist?: string;
+  };
   clips: Clip[];
   /** ISO 8601 timestamps. */
   createdAt: string;

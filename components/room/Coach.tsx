@@ -1,28 +1,23 @@
 "use client";
 
-import {
-  useEditorSelector,
-  useEditorStore,
-} from "@/components/editor/store-context";
-import type { Toast } from "./edit-actions";
-import { pickMusic } from "./music";
+import { useEditorSelector } from "@/components/editor/store-context";
+import { useMusicChooser } from "./MusicChooser";
 import styles from "./room.module.css";
 
 /**
  * First steps, over the room while the show is empty. Each ticks off as it
- * happens; the music step opens the file picker.
+ * happens; the music step opens the music chooser.
  */
 export function Coach({
   phonesIn,
   screenHref,
-  toast,
 }: {
   phonesIn: number;
   screenHref: string;
-  toast: Toast;
 }) {
-  const store = useEditorStore();
+  const chooseMusic = useMusicChooser();
   const hasMusic = useEditorSelector((s) => s.show.audio.fileId !== "");
+  const title = useEditorSelector((s) => s.show.audio.title);
   const steps: {
     done: boolean;
     text: string;
@@ -39,8 +34,12 @@ export function Coach({
     },
     {
       done: hasMusic,
-      text: hasMusic ? "Music added" : "Add music (optional)",
-      action: hasMusic ? undefined : () => pickMusic(store, toast),
+      text: hasMusic
+        ? title
+          ? `Music added: ${title}`
+          : "Music added"
+        : "Add music (optional)",
+      action: hasMusic ? undefined : chooseMusic,
     },
     {
       done: false,
