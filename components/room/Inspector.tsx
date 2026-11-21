@@ -551,9 +551,6 @@ function ShowPanel({ toast }: { toast: Toast }) {
           />
         </Field>
       )}
-      <p className={styles.note}>
-        Select a clip to edit it. Drag phones on the room to move them.
-      </p>
     </div>
   );
 }

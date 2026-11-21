@@ -116,24 +116,6 @@
   background: rgb(255 255 255 / 0.07);
 }
 
-.pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 400;
-  margin-right: 10px;
-  white-space: nowrap;
-}
-
-.pill i {
-  width: 9px;
-  height: 9px;
-  border-radius: 2px;
-  background: var(--lit);
-  box-shadow: 0 0 8px var(--lit);
-}
-
 /* Show picker */
 
 .picker {

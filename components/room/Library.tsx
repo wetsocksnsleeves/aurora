@@ -87,7 +87,7 @@ export function Library({
         </span>
       </button>
 
-      <p className={styles.label}>Effects · drag onto the timeline</p>
+      <p className={styles.label}>Effects</p>
       <EffectGrid
         color={color}
         disabled={disabled}
