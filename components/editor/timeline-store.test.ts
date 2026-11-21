@@ -55,6 +55,13 @@ describe("timeline state", () => {
     expect(state.audioError).toBe("x");
   });
 
+  it("plays a show without music straight away", () => {
+    let state = initialEditorState(makeShow());
+    expect(state.audioStatus).toBe("none");
+    state = editorReducer(state, { type: "setPlaying", playing: true });
+    expect(state.playing).toBe(true);
+  });
+
   it("clamps zoom", () => {
     const state = editorReducer(initialEditorState(makeShow()), {
       type: "setZoom",
