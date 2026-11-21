@@ -15,6 +15,7 @@ import {
   createHostedSession,
   readHostToken,
   type HostSnapshot,
+  ROOM_STORAGE_KEY,
 } from "@/app/sessions/host-client";
 import { listShows } from "@/components/editor/api";
 import type { Size } from "@/components/editor/geometry";
@@ -68,8 +69,6 @@ import styles from "./room.module.css";
 const body = Inter({ subsets: ["latin"], weight: ["300", "400", "500"] });
 const wordmark = Space_Grotesk({ subsets: ["latin"], weight: "700" });
 
-/** localStorage key holding this laptop's room code. */
-const ROOM_KEY = "lightshow-room";
 /** Edits wait this long before they are saved and sent to the phones. */
 const AUTOSAVE_MS = 800;
 /** A failed save is retried after this long. */
@@ -141,7 +140,7 @@ export function RoomApp() {
 
 function readRoomCode(): string | null {
   try {
-    return window.localStorage.getItem(ROOM_KEY);
+    return window.localStorage.getItem(ROOM_STORAGE_KEY);
   } catch {
     return null;
   }
@@ -149,7 +148,7 @@ function readRoomCode(): string | null {
 
 function writeRoomCode(code: string): void {
   try {
-    window.localStorage.setItem(ROOM_KEY, code);
+    window.localStorage.setItem(ROOM_STORAGE_KEY, code);
   } catch {
     // Storage blocked: the next visit opens a new room.
   }

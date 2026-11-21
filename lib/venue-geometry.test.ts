@@ -4,6 +4,7 @@ import {
   clampUnit,
   nearestPointOnSegment,
   pointInPolygon,
+  randomSeat,
   shapeAt,
 } from "./venue-geometry";
 import { wsUrlFor } from "./ws-url";
@@ -87,5 +88,35 @@ describe("wsUrlFor", () => {
     expect(wsUrlFor({ protocol: "http:", host: "localhost:3000" })).toBe(
       "ws://localhost:3000/ws",
     );
+  });
+});
+
+describe("randomSeat", () => {
+  const triangle: Venue = {
+    shapes: [
+      {
+        id: "t",
+        points: [
+          { x: 0.1, y: 0.1 },
+          { x: 0.9, y: 0.1 },
+          { x: 0.5, y: 0.9 },
+        ],
+      },
+    ],
+  };
+
+  it("lands inside the venue's shapes", () => {
+    let seed = 1;
+    const random = () =>
+      ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+    for (let i = 0; i < 200; i++) {
+      expect(shapeAt(triangle, randomSeat(triangle, random))).toBe("t");
+    }
+  });
+
+  it("uses the whole box when the venue has no shapes", () => {
+    const values = [0.25, 0.75];
+    const seat = randomSeat({ shapes: [] }, () => values.shift()!);
+    expect(seat).toEqual({ x: 0.25, y: 0.75 });
   });
 });

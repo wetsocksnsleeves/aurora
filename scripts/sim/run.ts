@@ -9,8 +9,8 @@ import {
   type ServerMessage,
 } from "@/lib/protocol";
 import { TEST_SHOW, TEST_SHOW_ID, TEST_WAVE_PERIOD_MS } from "@/lib/test-show";
-import type { Point, Show, Venue } from "@/lib/types";
-import { shapeAt } from "@/lib/venue-geometry";
+import type { Show } from "@/lib/types";
+import { randomSeat } from "@/lib/venue-geometry";
 import { closeCompilePool } from "@/server/compile-pool";
 import { SessionStore } from "@/server/sessions";
 import {
@@ -560,21 +560,6 @@ function worstClients(clients: SimClient[], count: number): WorstClient[] {
     })
     .sort((a, b) => b.maxErrorMs - a.maxErrorMs)
     .slice(0, count);
-}
-
-/** A uniformly random point inside the venue's shapes. */
-export function randomSeat(venue: Venue, random: () => number): Point {
-  const points = venue.shapes.flatMap((s) => s.points);
-  if (points.length === 0) return { x: random(), y: random() };
-  const xs = points.map((p) => p.x);
-  const ys = points.map((p) => p.y);
-  const [x0, x1] = [Math.max(0, Math.min(...xs)), Math.min(1, Math.max(...xs))];
-  const [y0, y1] = [Math.max(0, Math.min(...ys)), Math.min(1, Math.max(...ys))];
-  for (let i = 0; i < 1000; i++) {
-    const p = { x: x0 + (x1 - x0) * random(), y: y0 + (y1 - y0) * random() };
-    if (shapeAt(venue, p) !== null) return p;
-  }
-  return points[0]!;
 }
 
 function shuffle<T>(items: T[], random: () => number): T[] {
