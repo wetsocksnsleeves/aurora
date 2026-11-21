@@ -19,6 +19,16 @@ describe("mainBackCamera", () => {
     ).toBe("main");
   });
 
+  it('reads Samsung\'s "camera N" names too', () => {
+    expect(
+      mainBackCamera([
+        cam("uw", "camera 2, facing back"),
+        cam("front", "camera 1, facing front"),
+        cam("main", "camera 0, facing back"),
+      ]),
+    ).toBe("main");
+  });
+
   it("skips lenses named as ultra-wide or telephoto", () => {
     expect(
       mainBackCamera([

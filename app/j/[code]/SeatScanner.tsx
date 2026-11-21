@@ -119,6 +119,7 @@ export function SeatScanner({
     let stopped = false;
     let stream: MediaStream | null = null;
     let cameraLabel = "";
+    let cameras: string[] = [];
     // `?debug` shows what the scanner sees, for checking a phone by eye.
     const debugOn = new URLSearchParams(window.location.search).has("debug");
     let frames = 0;
@@ -321,7 +322,8 @@ export function SeatScanner({
         const p = robust(perspective);
         setDebug(
           [
-            cameraLabel || "camera ?",
+            `using: ${cameraLabel || "?"}`,
+            `cameras: ${cameras.join(" | ") || "?"}`,
             `video ${video.videoWidth}x${video.videoHeight}, detect ${w}x${h}`,
             `lens ${lens.fov.toFixed(0)}° ${lens.source}` +
               (p
@@ -401,6 +403,7 @@ export function SeatScanner({
         const camera = await openRearCamera();
         stream = camera.stream;
         cameraLabel = camera.label;
+        cameras = camera.cameras;
       } catch {
         setError(
           "Couldn't open the camera. Allow camera access for this site, then try again.",

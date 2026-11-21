@@ -56,10 +56,11 @@ const NOT_MAIN = /ultra|wide|tele|macro|depth|tof|zoom|mono/i;
 
 /**
  * The main back camera's device id, when the browser's choice may not be
- * it. Chrome on Android names cameras "camera2 N, facing back", and
- * "facing environment" often opens an ultra-wide or telephoto lens; the
- * lowest numbered back camera is the main one on nearly every phone. Other
- * browsers (iPhone Safari) already pick the main camera: null.
+ * it. Chrome on Android names cameras "camera2 N, facing back" or
+ * "camera N, facing back" (Samsung S23), and "facing environment" often
+ * opens an ultra-wide or telephoto lens; the lowest numbered back camera is
+ * the main one on nearly every phone. Other browsers (iPhone Safari)
+ * already pick the main camera: null.
  */
 export function mainBackCamera(
   devices: readonly Pick<MediaDeviceInfo, "deviceId" | "kind" | "label">[],
@@ -67,7 +68,7 @@ export function mainBackCamera(
   let best: { id: string; n: number } | null = null;
   for (const d of devices) {
     if (d.kind !== "videoinput") continue;
-    const m = /camera2 (\d+), facing back/i.exec(d.label);
+    const m = /(\d+),\s*facing back/i.exec(d.label);
     if (!m || NOT_MAIN.test(d.label)) continue;
     const n = Number(m[1]);
     if (!best || n < best.n) best = { id: d.deviceId, n };
@@ -75,7 +76,12 @@ export function mainBackCamera(
   return best?.id ?? null;
 }
 
-export type RearCamera = { stream: MediaStream; label: string };
+export type RearCamera = {
+  stream: MediaStream;
+  label: string;
+  /** Every camera's name, for the debug view. */
+  cameras: string[];
+};
 
 /**
  * Open the main back camera. Asks for "the back camera" first (camera
@@ -87,10 +93,13 @@ export async function openRearCamera(): Promise<RearCamera> {
     audio: false,
     video: { ...VIDEO, facingMode: { ideal: "environment" } },
   });
+  let cameras: string[] = [];
   try {
-    const main = mainBackCamera(
-      await navigator.mediaDevices.enumerateDevices(),
-    );
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    cameras = devices
+      .filter((d) => d.kind === "videoinput")
+      .map((d) => d.label || "?");
+    const main = mainBackCamera(devices);
     const current = stream.getVideoTracks()[0]?.getSettings().deviceId;
     if (main && current !== main) {
       stream.getTracks().forEach((t) => t.stop());
@@ -109,7 +118,7 @@ export async function openRearCamera(): Promise<RearCamera> {
       advanced: [{ focusMode: "continuous" } as MediaTrackConstraintSet],
     })
     .catch(() => {});
-  return { stream, label: track?.label ?? "" };
+  return { stream, label: track?.label ?? "", cameras };
 }
 
 /** Copies video frames into a greyscale buffer at processing size. */
