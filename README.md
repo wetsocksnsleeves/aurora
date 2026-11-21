@@ -2,15 +2,15 @@
 
 An easy to use, minimal-setup, synchronised crowd light show platform. Participants only need their phone.
 
-A host draws a venue, imports an audio track, and paints colour onto a timeline as clips — not frames. At the show, each participant's phone finds its own seat with its camera, syncs to a shared clock, and plays back the slice of the show assigned to that seat.
+A host masks out the shape of the venue, imports an audio track, and paints colour onto a timeline. At the show, each participant's phone finds its own seat with its camera, synchronised with the server, and materialises those colors through light.
 
 ## Demo
 
-**Editor** — effects library, venue preview and a multi-track clip timeline.
+**Editor** — effects library, venue preview and a multi-track clip timeline. Or an auto generated show via deterministic algorithms, deconstructing 3 tiers of frequency and applies preset based on what fits the given region.
 
 ![Editor view](docs/demo/editor-view.gif)
 
-**Rehearsal** — simulate up to 100 phones joining a session before any real participant connects.
+**Test harness** — simulate N phones joining a session before any real participant connects. Stress test infrastructure, connectivity, and preview your show.
 
 ![Simulated phones joining a session](docs/demo/mock-demo-join.gif)
 
@@ -18,17 +18,11 @@ A host draws a venue, imports an audio track, and paints colour onto a timeline 
 
 ![Editor preview playing back live](docs/demo/live-show-editor.gif)
 
-**The room** — the venue's 3D view with every simulated seat lit and changing colour in sync.
+**Playback, a bird's eye view** — the venue's 3D view with every simulated seat lit and changing colour in sync.
 
 ![3D venue view during live playback](docs/demo/mock-3d-live.gif)
 
-On the night, a real audience scans a join code, points their phone's camera at the big screen to find their seat, and taps ready — no demo needed for that part, just a phone.
-
-## Docs
-
-- [`SPEC.md`](SPEC.md) — what to build
-- [`DEVELOPMENT.md`](DEVELOPMENT.md) — chunk plan
-- [`AGENTS.md`](AGENTS.md) — project conventions
+On the night, a real audience scans a join code, points their phone's camera at the big screen to find their seat through an ingenious algorithm, and taps ready. Larger venues can be supported through more involved algorithms, triangulating position through readily available signals.
 
 ## License
 
