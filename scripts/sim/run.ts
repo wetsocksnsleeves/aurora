@@ -21,6 +21,7 @@ import {
 import { injectBug, type BugName } from "./bugs";
 import { drawClientFaults, seededRandom, type FaultConfig } from "./faults";
 import { SimClient, trueNow } from "./sim-client";
+import { startCrowdStream } from "./stream";
 import { mean, summarize, type Summary } from "./stats";
 
 /**
@@ -75,6 +76,13 @@ export type SimOptions = {
   /** Remote session only: how long to wait for Start on the host page. */
   startTimeoutMs: number;
   bug: BugName | null;
+  /** Serve each client's seat and colour on this port (`--stream`). */
+  stream: { port: number } | null;
+  /**
+   * Called with the report while the clients and the stream are still up;
+   * the run waits for it to settle before cleaning up.
+   */
+  onReport?: (report: SimReport) => Promise<void> | void;
   log: (line: string) => void;
 };
 
@@ -86,6 +94,7 @@ export const DEFAULT_SIM_OPTIONS: Omit<SimOptions, "faults" | "log"> = {
   joinTimeoutMs: 30_000,
   startTimeoutMs: 600_000,
   bug: null,
+  stream: null,
 };
 
 export type WorstClient = {
@@ -220,6 +229,12 @@ async function run(
     for (const c of clients) c.stop();
   });
 
+  if (options.stream) {
+    const stream = await startCrowdStream(clients, code, options.stream.port);
+    cleanups.push(stream.close);
+    log(`stream: ws://localhost:${stream.port}`);
+  }
+
   // -- Simulated requestAnimationFrame ----------------------------------------
   const lags: number[] = [];
   let ticking = true;
@@ -327,7 +342,7 @@ async function run(
     );
   }
 
-  return {
+  const report: SimReport = {
     clients: clients.length,
     standbyAtStart,
     degradedAtStart,
@@ -354,6 +369,8 @@ async function run(
     failures,
     passed: failures.length === 0,
   };
+  await options.onReport?.(report);
+  return report;
 }
 
 // ---------------------------------------------------------------------------
