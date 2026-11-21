@@ -1,18 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import type { HostClient } from "@/app/sessions/host-client";
 import { AUDIO_OFFSET_LIMIT_MS } from "@/lib/audio-schedule";
 import {
-  inchesFromTargetWidth,
-  targetWidthFromInches,
+  screenFromConfig,
+  targetWidthFromScreen,
 } from "@/lib/positioning/seat";
 import type { SessionMessage } from "@/lib/protocol";
+import type { PositioningConfig, ScreenSize } from "@/lib/types";
 import type { HostAudioControls } from "./use-host-audio";
 import styles from "./room.module.css";
 
-const MIN_INCHES = 20;
-const MAX_INCHES = 1000;
+type Unit = "in" | "cm";
+const METRES_PER: Record<Unit, number> = { in: 0.0254, cm: 0.01 };
+const UNIT_KEY = "lightshow-screen-unit";
+/** Smallest and largest screen side, in metres. */
+const MIN_SIDE_M = 0.1;
+const MAX_SIDE_M = 100;
+/** Common screen shapes, width over height. */
+const SHAPES: [string, number][] = [
+  ["16:9", 16 / 9],
+  ["16:10", 16 / 10],
+  ["4:3", 4 / 3],
+];
 
 /**
  * Room settings behind one button: the big screen's size (phones need it to
@@ -35,7 +46,6 @@ export function Settings({
 }) {
   const [open, setOpen] = useState(false);
   const config = session.positioning;
-  const inches = Math.round(inchesFromTargetWidth(config.targetWidthM));
   const { offsetMs, setOffsetMs, snapshot } = audio;
 
   return (
@@ -52,42 +62,16 @@ export function Settings({
         <>
           <div className={styles.backdrop} onClick={() => setOpen(false)} />
           <div className={styles.panel} role="dialog" aria-label="Settings">
-            <label className={styles.setting}>
-              <span>Screen size</span>
-              <span className={styles.inputWithUnit}>
-                <input
-                  // Remount when the server's value changes, so it shows through.
-                  key={inches}
-                  type="number"
-                  inputMode="numeric"
-                  min={MIN_INCHES}
-                  max={MAX_INCHES}
-                  step={1}
-                  defaultValue={inches}
-                  aria-label="Screen size in inches"
-                  onBlur={(e) => {
-                    const value = Number(e.target.value);
-                    if (
-                      value >= MIN_INCHES &&
-                      value <= MAX_INCHES &&
-                      value !== inches
-                    ) {
-                      client.setPositioning({
-                        ...config,
-                        targetWidthM: targetWidthFromInches(value),
-                      });
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") e.currentTarget.blur();
-                  }}
-                />
-                in
-              </span>
-            </label>
-            <p className={styles.hint}>
-              Big screen diagonal. Phones use it to judge distance.
-            </p>
+            <ScreenFields
+              config={config}
+              onChange={(screen) =>
+                client.setPositioning({
+                  ...config,
+                  screen,
+                  targetWidthM: targetWidthFromScreen(screen),
+                })
+              }
+            />
 
             <label className={styles.setting}>
               <span>
@@ -179,5 +163,141 @@ export function Settings({
         </>
       ) : null}
     </div>
+  );
+}
+
+const unitListeners = new Set<() => void>();
+
+function readUnit(): Unit {
+  try {
+    return localStorage.getItem(UNIT_KEY) === "cm" ? "cm" : "in";
+  } catch {
+    return "in";
+  }
+}
+
+function writeUnit(unit: Unit): void {
+  try {
+    localStorage.setItem(UNIT_KEY, unit);
+  } catch {
+    // Not remembered; inches next time.
+  }
+  for (const fn of unitListeners) fn();
+}
+
+/** Inches or centimetres, remembered on this laptop. */
+function useUnit(): [Unit, (unit: Unit) => void] {
+  const unit = useSyncExternalStore(
+    (fn) => {
+      unitListeners.add(fn);
+      return () => unitListeners.delete(fn);
+    },
+    readUnit,
+    () => "in" as Unit,
+  );
+  return [unit, writeUnit];
+}
+
+/**
+ * The big screen's width and height. Phones judge distance by how big the
+ * target looks, and the target's real width depends on both: on a 4:3
+ * projector it fills more of the width than on a 16:9 TV.
+ */
+function ScreenFields({
+  config,
+  onChange,
+}: {
+  config: PositioningConfig;
+  onChange: (screen: ScreenSize) => void;
+}) {
+  const [unit, setUnit] = useUnit();
+  const screen = screenFromConfig(config);
+  const per = METRES_PER[unit];
+  // Whole centimetres, or inches to a tenth.
+  const shown = (m: number) =>
+    unit === "cm" ? Math.round(m / per) : Math.round((m / per) * 10) / 10;
+  const commit = (next: ScreenSize) => {
+    const ok = (m: number) => m >= MIN_SIDE_M && m <= MAX_SIDE_M;
+    if (!ok(next.widthM) || !ok(next.heightM)) return;
+    if (
+      Math.abs(next.widthM - screen.widthM) < 1e-6 &&
+      Math.abs(next.heightM - screen.heightM) < 1e-6
+    ) {
+      return;
+    }
+    onChange(next);
+  };
+  const side = (key: keyof ScreenSize, label: string) => (
+    <label className={styles.inputWithUnit}>
+      <input
+        // Remount when the value or unit changes, so it shows through.
+        key={`${unit}-${screen[key]}`}
+        type="number"
+        inputMode="decimal"
+        min={0}
+        step="any"
+        defaultValue={shown(screen[key])}
+        aria-label={`Screen ${label} in ${unit === "in" ? "inches" : "centimetres"}`}
+        onBlur={(e) => {
+          const value = Number(e.target.value) * per;
+          if (Number.isFinite(value)) commit({ ...screen, [key]: value });
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
+      />
+      {label === "width" ? "×" : unit}
+    </label>
+  );
+  const aspect = screen.widthM / screen.heightM;
+  const named = SHAPES.find(([, r]) => Math.abs(r - aspect) < 0.01)?.[0];
+  const diagonal = Math.hypot(screen.widthM, screen.heightM) / 0.0254;
+
+  return (
+    <>
+      <div className={styles.setting}>
+        <span>Screen</span>
+        <span className={styles.screenSides}>
+          {side("widthM", "width")}
+          {side("heightM", "height")}
+        </span>
+      </div>
+      <div className={styles.setting}>
+        <span className={styles.shapeButtons} role="group" aria-label="Shape">
+          {SHAPES.map(([name, ratio]) => (
+            <button
+              key={name}
+              type="button"
+              aria-pressed={name === named}
+              onClick={() =>
+                commit({
+                  widthM: screen.widthM,
+                  heightM: screen.widthM / ratio,
+                })
+              }
+            >
+              {name}
+            </button>
+          ))}
+        </span>
+        <span className={styles.shapeButtons} role="group" aria-label="Units">
+          {(["in", "cm"] as const).map((u) => (
+            <button
+              key={u}
+              type="button"
+              aria-pressed={u === unit}
+              onClick={() => setUnit(u)}
+            >
+              {u}
+            </button>
+          ))}
+        </span>
+      </div>
+      <p className={styles.hint}>
+        The picture&rsquo;s width and height (about {Math.round(diagonal)}
+        &Prime; diagonal{named ? `, ${named}` : ""}). Phones use it to judge
+        distance.
+      </p>
+    </>
   );
 }

@@ -105,7 +105,15 @@ export type PositioningConfig = {
   targetWidthM: number;
   venueWidthM: number;
   venueDepthM: number;
+  /**
+   * The big screen's real size, as the host entered it. `targetWidthM` is
+   * worked out from it; kept so the settings can show what was entered.
+   */
+  screen?: ScreenSize;
 };
+
+/** A screen's visible picture, in metres. */
+export type ScreenSize = { widthM: number; heightM: number };
 
 /** One colour change. `tMs` is show time (ms after `T0`). */
 export type ScheduleEvent = { tMs: number; color: string };

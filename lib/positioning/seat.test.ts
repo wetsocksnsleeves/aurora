@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   inchesFromTargetWidth,
+  TARGET_SHARE_OF_SCREEN,
+  screenFromConfig,
+  targetShareOfScreen,
+  targetWidthFromScreen,
   roomToVenuePoint,
   targetWidthFromInches,
 } from "./seat";
@@ -35,5 +39,41 @@ describe("screen size in inches", () => {
       100,
       9,
     );
+  });
+});
+
+describe("screen shape", () => {
+  it("matches the 16:9 share exactly, and grows on squarer screens", () => {
+    expect(targetShareOfScreen(16 / 9)).toBeCloseTo(TARGET_SHARE_OF_SCREEN, 9);
+    expect(targetShareOfScreen(16 / 10)).toBeCloseTo(0.728, 3);
+    // 4:3: the page runs out of width first.
+    expect(targetShareOfScreen(4 / 3)).toBeCloseTo(16 / 19, 9);
+    // Ultrawide: less of the width.
+    expect(targetShareOfScreen(21 / 9)).toBeCloseTo(0.499, 3);
+  });
+
+  it("works out the target width from the screen's width and height", () => {
+    // A 65 inch 16:9 TV is the same as entering 65 inches.
+    const tv = { widthM: 1.439, heightM: 1.439 * (9 / 16) };
+    expect(targetWidthFromScreen(tv)).toBeCloseTo(targetWidthFromInches(65), 3);
+    // A 4:3 projector screen 2 m wide.
+    expect(targetWidthFromScreen({ widthM: 2, heightM: 1.5 })).toBeCloseTo(
+      (2 * 16) / 19,
+      9,
+    );
+  });
+
+  it("reads the screen back from a config, or assumes 16:9", () => {
+    const config = {
+      targetWidthM: 1,
+      venueWidthM: 200,
+      venueDepthM: 200,
+    };
+    const screen = screenFromConfig(config);
+    expect(screen.widthM / screen.heightM).toBeCloseTo(16 / 9, 9);
+    expect(targetWidthFromScreen(screen)).toBeCloseTo(1, 9);
+    expect(
+      screenFromConfig({ ...config, screen: { widthM: 3, heightM: 2 } }),
+    ).toEqual({ widthM: 3, heightM: 2 });
   });
 });

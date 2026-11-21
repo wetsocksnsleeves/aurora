@@ -1,4 +1,5 @@
-import type { Point, PositioningConfig } from "../types";
+import type { Point, PositioningConfig, ScreenSize } from "../types";
+import { EXTENT, W } from "./pattern";
 import { clampUnit } from "../venue-geometry";
 
 /**
@@ -8,6 +9,35 @@ import { clampUnit } from "../venue-geometry";
  * resolution: 0.653 at 1280x720, 0.657 at 1920x1080.
  */
 export const TARGET_SHARE_OF_SCREEN = 0.655;
+
+/**
+ * Share of the page's height the target can use: the logo band above and
+ * the margin below take the rest. Set so a 16:9 screen gives exactly
+ * `TARGET_SHARE_OF_SCREEN`.
+ */
+const PAGE_HEIGHT_SHARE = (TARGET_SHARE_OF_SCREEN * EXTENT.h * 16) / (9 * W);
+
+/**
+ * Share of a screen's width between the target's corner square centres, for
+ * a screen `aspect` (width / height) wide. The page fits the target to the
+ * screen, so on narrow screens it's limited by the width instead of the
+ * height.
+ */
+export function targetShareOfScreen(aspect: number): number {
+  return Math.min(W / EXTENT.w, (W * PAGE_HEIGHT_SHARE) / (EXTENT.h * aspect));
+}
+
+/** Target width (metres) on a screen this big, showing the page fullscreen. */
+export function targetWidthFromScreen(screen: ScreenSize): number {
+  return screen.widthM * targetShareOfScreen(screen.widthM / screen.heightM);
+}
+
+/** The screen size a config stands for: as entered, or 16:9 from the target. */
+export function screenFromConfig(config: PositioningConfig): ScreenSize {
+  if (config.screen) return config.screen;
+  const widthM = config.targetWidthM / TARGET_SHARE_OF_SCREEN;
+  return { widthM, heightM: (widthM * 9) / 16 };
+}
 
 /** 16:9 screen width as a fraction of its diagonal. */
 const WIDTH_PER_DIAGONAL = 16 / Math.hypot(16, 9);
