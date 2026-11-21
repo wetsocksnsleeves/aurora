@@ -169,7 +169,7 @@ const READY_STATES: readonly ParticipantState[] = [
 ];
 
 export function storageKey(code: string): string {
-  return `aurora.participant.${code.toUpperCase()}`;
+  return `lightshow.participant.${code.toUpperCase()}`;
 }
 
 export class ParticipantClient {

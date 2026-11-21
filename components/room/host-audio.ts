@@ -282,7 +282,7 @@ export class HostAudio {
     if (run.overThreshold < DRIFT_CHECKS_TO_RESYNC) return;
     const resyncs = (this.snapshot.scheduled?.resyncs ?? 0) + 1;
     console.info(
-      `aurora: audio ${driftMs > 0 ? "late" : "early"} by ${Math.abs(driftMs).toFixed(1)} ms, rescheduling`,
+      `lightshow: audio ${driftMs > 0 ? "late" : "early"} by ${Math.abs(driftMs).toFixed(1)} ms, rescheduling`,
     );
     this.play(run.options, resyncs);
   }

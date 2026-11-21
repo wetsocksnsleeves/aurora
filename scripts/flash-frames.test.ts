@@ -26,7 +26,7 @@ describe("parseRois", () => {
 
 describe.skipIf(!hasFfmpeg)("flash-frames CLI", () => {
   it("measures a screen lit 3 frames late in a 240 fps video", () => {
-    const dir = mkdtempSync(path.join(tmpdir(), "aurora-flash-"));
+    const dir = mkdtempSync(path.join(tmpdir(), "lightshow-flash-"));
     try {
       const video = path.join(dir, "synth.mp4");
       // Two white boxes flashing at 1 Hz; the right one 12.5 ms (3 frames) late.

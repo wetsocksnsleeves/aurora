@@ -114,11 +114,11 @@ describe("allowedHostnames", () => {
   it("adds the PUBLIC_URL host and ALLOWED_HOSTS", () => {
     const hosts = allowedHostnames({
       PUBLIC_URL: "https://abc.trycloudflare.com",
-      ALLOWED_HOSTS: " 192.168.1.20:3000 ,aurora.local,,",
+      ALLOWED_HOSTS: " 192.168.1.20:3000 ,lightshow.local,,",
     });
     expect(hosts.has("abc.trycloudflare.com")).toBe(true);
     expect(hosts.has("192.168.1.20")).toBe(true);
-    expect(hosts.has("aurora.local")).toBe(true);
+    expect(hosts.has("lightshow.local")).toBe(true);
     expect(hosts.has("")).toBe(false);
   });
 

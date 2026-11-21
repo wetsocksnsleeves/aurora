@@ -18,7 +18,7 @@
 export const AUDIO_OFFSET_LIMIT_MS = 500;
 
 /** localStorage key for the manual offset. */
-export const AUDIO_OFFSET_STORAGE_KEY = "aurora.audioOffsetMs";
+export const AUDIO_OFFSET_STORAGE_KEY = "lightshow.audioOffsetMs";
 
 export type AudioClockSample = {
   /** Server-clock start time of the show. */

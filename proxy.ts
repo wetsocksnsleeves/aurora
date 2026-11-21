@@ -10,5 +10,10 @@ export function proxy(request: Request): Response | undefined {
 }
 
 export const config = {
-  matcher: "/api/:path*",
+  // Every /api path except the audio upload, `/api/audio` itself. Next
+  // buffers the body of each request proxy matches and silently cuts it at
+  // 10 MB (`proxyClientMaxBodySize`), which truncates large uploads. The
+  // upload route enforces its own size cap and runs `guardApiRequest`.
+  // `/api/audio/<fileId>` is still matched.
+  matcher: "/api/((?!audio$).*)",
 };
