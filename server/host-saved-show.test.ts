@@ -41,7 +41,7 @@ async function listen(): Promise<{ url: string; store: SessionStore }> {
   wss = attachWebSocketServer(server, {
     nextUpgrade: () => {},
     forwardNextUpgrades: false,
-    publicUrl: "https://aurora.example",
+    publicUrl: "https://lightshow.example",
     store,
   });
   await new Promise<void>((r) => server!.listen(0, "127.0.0.1", r));

@@ -8,7 +8,7 @@ const running = await startServer({ dev, port, hostname });
 
 // Tests parse this line to find the bound port when PORT=0.
 console.log(
-  `> aurora listening on http://localhost:${running.port} (${dev ? "development" : "production"})`,
+  `> lightshow listening on http://localhost:${running.port} (${dev ? "development" : "production"})`,
 );
 
 let shuttingDown = false;

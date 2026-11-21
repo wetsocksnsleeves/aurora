@@ -452,7 +452,7 @@ describe("/api/shows", () => {
       ALLOWED_HOSTS: process.env.ALLOWED_HOSTS,
     };
     process.env.PUBLIC_URL = "https://show.trycloudflare.com";
-    process.env.ALLOWED_HOSTS = "192.168.1.20, aurora.local";
+    process.env.ALLOWED_HOSTS = "192.168.1.20, lightshow.local";
     try {
       for (const host of [
         "localhost:3000",
@@ -460,7 +460,7 @@ describe("/api/shows", () => {
         "[::1]:3000",
         "show.trycloudflare.com",
         "192.168.1.20:3000",
-        "AURORA.local",
+        "LIGHTSHOW.local",
       ]) {
         const res = collection.GET(
           new Request("http://localhost/api/shows", { headers: { host } }),

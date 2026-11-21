@@ -106,7 +106,7 @@ describe("compileInWorker in the production bundle", () => {
     // Mirrors `build:server` in package.json: the server and the worker are
     // bundled separately into the same directory.
     const serverDir = path.dirname(fileURLToPath(import.meta.url));
-    const outDir = await mkdtemp(path.join(tmpdir(), "aurora-compile-"));
+    const outDir = await mkdtemp(path.join(tmpdir(), "lightshow-compile-"));
     const common: BuildOptions = {
       bundle: true,
       platform: "node",

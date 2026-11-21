@@ -116,9 +116,9 @@ describe("/api/audio", () => {
   it("returns 404 for unknown or invalid ids", async () => {
     const missing = "0b6f4c1e-2a7d-4b8e-9f00-123456789abc.mp3";
     expect((await item.GET(getRequest(), ctx(missing))).status).toBe(404);
-    expect((await item.GET(getRequest(), ctx("..%2Faurora.db"))).status).toBe(
-      404,
-    );
+    expect(
+      (await item.GET(getRequest(), ctx("..%2Flightshow.db"))).status,
+    ).toBe(404);
   });
 
   it("replies 413 to an oversized chunked upload without reading all of it", async () => {

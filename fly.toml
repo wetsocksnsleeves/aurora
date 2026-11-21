@@ -7,10 +7,10 @@ primary_region = "syd"
   PORT = "8080"
   HOST = "0.0.0.0"
   PUBLIC_URL = "https://lightshow.fly.dev"
-  AURORA_DATA_DIR = "/data"
+  LIGHTSHOW_DATA_DIR = "/data"
 
 [mounts]
-  source = "aurora_data"
+  source = "lightshow_data"
   destination = "/data"
 
 [http_service]
