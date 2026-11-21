@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 20
     environment:
       name: production
-      url: https://lightshow.party
+      url: https://lightshow.fly.dev
     steps:
       - uses: actions/checkout@v4
         with:

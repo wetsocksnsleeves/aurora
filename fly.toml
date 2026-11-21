@@ -6,9 +6,9 @@ primary_region = "syd"
 [env]
   PORT = "8080"
   HOST = "0.0.0.0"
-  PUBLIC_URL = "https://lightshow.party"
-  # Keep the fly.dev hostname working for old links and health checks.
-  ALLOWED_HOSTS = "lightshow.fly.dev"
+  PUBLIC_URL = "https://lightshow.fly.dev"
+  # Accept the custom domain too, ready for when its DNS is fixed.
+  ALLOWED_HOSTS = "lightshow.party"
   LIGHTSHOW_DATA_DIR = "/data"
 
 [mounts]
