@@ -41,11 +41,32 @@ export type PatternShape = {
   to: number;
 };
 
+/** How an image sits on the room: fill it (cropping), or fit inside it. */
+export type ImageFit = "cover" | "contain";
+
+/**
+ * A picture over the crowd: each seat shows the pixel above it. Small on
+ * purpose (a crowd is a low-resolution screen), and kept in the clip, so
+ * shows need no separate image files.
+ */
+export type ImageShape = {
+  kind: "image";
+  /** Pixels across and down, at most `MAX_IMAGE_SIDE` each. */
+  w: number;
+  h: number;
+  /** "rrggbbaa" hex for each pixel, row by row from the top left. */
+  pixels: string;
+  fit: ImageFit;
+};
+
+export const MAX_IMAGE_SIDE = 64;
+
 export type ClipShape =
   | { kind: "fill" }
   /** `moveTo` is the offset at `endMs`, interpolated linearly from `startMs`. */
   | { kind: "polygon"; points: Point[]; moveTo?: Point }
-  | PatternShape;
+  | PatternShape
+  | ImageShape;
 
 /**
  * Switch a clip on and off. Phase follows show time, so a blink every beat

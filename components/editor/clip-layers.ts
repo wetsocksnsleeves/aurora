@@ -1,5 +1,6 @@
 import type { Clip, Point } from "@/lib/types";
 import { coverage, fadeEnvelope } from "@/lib/compile";
+import { imageRect } from "@/lib/image";
 import { blinkLevel } from "@/lib/patterns";
 import { activeClips, clipPolygonAt, isClipActive } from "./clips";
 import { toPx, type Size } from "./geometry";
@@ -26,6 +27,18 @@ function paintClip(
 ): void {
   const points = clipPolygonAt(clip, tMs);
   const paint = () => (mode === "fill" ? ctx.fill("evenodd") : ctx.stroke());
+  if (clip.shape.kind === "image") {
+    // The picture's frame, where it's on the room.
+    const r = imageRect(clip.shape);
+    const x0 = Math.max(0, r.x) * size.width;
+    const y0 = Math.max(0, r.y) * size.height;
+    const x1 = Math.min(1, r.x + r.w) * size.width;
+    const y1 = Math.min(1, r.y + r.h) * size.height;
+    ctx.beginPath();
+    ctx.rect(x0, y0, x1 - x0, y1 - y0);
+    paint();
+    return;
+  }
   if (points) {
     tracePolygon(ctx, points, size);
     paint();
@@ -42,6 +55,37 @@ function paintClip(
     tracePolygon(ctx, shape.points, size);
     paint();
   }
+}
+
+/** An image clip: each pixel where it lands on the room. */
+function paintImage(
+  ctx: CanvasRenderingContext2D,
+  shape: Extract<Clip["shape"], { kind: "image" }>,
+  size: Size,
+  alpha: number,
+): void {
+  const r = imageRect(shape);
+  const pw = (r.w / shape.w) * size.width;
+  const ph = (r.h / shape.h) * size.height;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, size.width, size.height);
+  ctx.clip();
+  ctx.globalAlpha = alpha;
+  for (let y = 0; y < shape.h; y++) {
+    for (let x = 0; x < shape.w; x++) {
+      const i = (y * shape.w + x) * 8;
+      if (parseInt(shape.pixels.slice(i + 6, i + 8), 16) < 128) continue;
+      ctx.fillStyle = `#${shape.pixels.slice(i, i + 6)}`;
+      ctx.fillRect(
+        r.x * size.width + x * pw,
+        r.y * size.height + y * ph,
+        pw + 0.5,
+        ph + 0.5,
+      );
+    }
+  }
+  ctx.restore();
 }
 
 /** Cells across the room when drawing an effect worked out per seat. */
@@ -86,6 +130,15 @@ export const clipOverlayLayer: CanvasLayer = {
       ctx.fillStyle = clip.color;
       if (clip.shape.kind === "pattern") {
         paintPattern(ctx, clip, t, size, alpha);
+        continue;
+      }
+      if (clip.shape.kind === "image") {
+        paintImage(
+          ctx,
+          clip.shape,
+          size,
+          alpha * (clip.blink ? blinkLevel(clip.blink, t) : 1),
+        );
         continue;
       }
       ctx.globalAlpha = alpha * (clip.blink ? blinkLevel(clip.blink, t) : 1);

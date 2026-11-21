@@ -184,6 +184,42 @@ describe("/api/shows", () => {
       { name: "" },
       { venue: { shapes: [{ id: "s", points: [{ x: 0, y: 0 }] }] } },
       { audio: { fileId: "../../etc/passwd", durationMs: 0 } },
+      // An image whose pixels don't match its size.
+      {
+        clips: [
+          {
+            id: "c",
+            layer: 0,
+            startMs: 0,
+            endMs: 5,
+            color: "#ffffff",
+            fadeInMs: 0,
+            fadeOutMs: 0,
+            shape: {
+              kind: "image",
+              w: 2,
+              h: 2,
+              pixels: "ff0000ff",
+              fit: "cover",
+            },
+          },
+        ],
+      },
+      // Too big.
+      {
+        clips: [
+          {
+            id: "c",
+            layer: 0,
+            startMs: 0,
+            endMs: 5,
+            color: "#ffffff",
+            fadeInMs: 0,
+            fadeOutMs: 0,
+            shape: { kind: "image", w: 65, h: 1, pixels: "", fit: "cover" },
+          },
+        ],
+      },
       {
         clips: [
           {

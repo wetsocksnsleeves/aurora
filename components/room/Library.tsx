@@ -9,6 +9,7 @@ import { colorAt } from "@/lib/compile";
 import type { Show } from "@/lib/types";
 import { addEffect, beatMs, type Toast } from "./edit-actions";
 import {
+  DEMO_IMAGE,
   EFFECTS,
   EFFECT_MIME,
   SWATCHES,
@@ -192,6 +193,7 @@ function EffectGrid({
         color,
         showMs: 60_000,
         beatMs: beatMs(store),
+        image: DEMO_IMAGE,
       });
       const drawn =
         effect.id === "draw" || effect.id === "brush"

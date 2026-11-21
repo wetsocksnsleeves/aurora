@@ -55,6 +55,13 @@ const PATHS = {
   draw: <path d="M4 20l4-1L19 8l-3-3L5 16zM14 7l3 3" />,
   brush: <path d="M4 17c3-6 6 2 9-4s5-4 7-6" />,
   shape: <path d="M5 5h14v14H5z" />,
+  image: (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <circle cx="9" cy="10" r="1.6" />
+      <path d="M21 16l-5-5-8 8" />
+    </>
+  ),
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof PATHS;
@@ -88,6 +95,7 @@ export function ClipIcon({ clip }: { clip: Clip }) {
   if (clip.label === "Flash") name = "flash";
   else if (clip.blink) name = clip.blink.soft ? "pulse" : "strobe";
   else if (shape.kind === "pattern") name = shape.pattern;
+  else if (shape.kind === "image") name = "image";
   else if (shape.kind === "polygon") name = "shape";
   return <Icon name={name} size={13} />;
 }

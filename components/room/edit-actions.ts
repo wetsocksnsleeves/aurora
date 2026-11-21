@@ -2,7 +2,9 @@ import { formatTime, isValidBpm, snapTime } from "@/components/editor/snap";
 import { freeLayer } from "@/components/editor/clips";
 import { newId, type EditorStore } from "@/components/editor/store";
 import { showDurationMs } from "@/lib/compile";
-import type { Clip } from "@/lib/types";
+import { averageColor } from "@/lib/image";
+import type { Clip, ImageShape } from "@/lib/types";
+import { pickImage } from "./image-upload";
 import {
   DEFAULT_BEAT_MS,
   effectById,
@@ -49,6 +51,10 @@ export function addEffect(
     state.snap,
     state.show.audio.durationMs,
   );
+  if (effect.upload) {
+    void addImage(store, toast, at, layer);
+    return;
+  }
   if (effect.tool) {
     if (atMs !== undefined) store.dispatch({ type: "seek", timeMs: at });
     store.dispatch({ type: "setTool", tool: effect.tool });
@@ -71,6 +77,62 @@ export function addEffect(
   clip.layer = freeLayer(state.show.clips, clip.startMs, clip.endMs, layer);
   store.dispatch({ type: "addClips", clips: [clip], select: clip.id });
   toast(`${effect.label} added at ${formatTime(clip.startMs)}`, true);
+}
+
+/** Pick a picture and add it as an image clip at `atMs`. */
+async function addImage(
+  store: EditorStore,
+  toast: Toast,
+  atMs: number,
+  layer: number,
+): Promise<void> {
+  let image: ImageShape | null;
+  try {
+    image = await pickImage();
+  } catch {
+    toast("Couldn’t read that picture");
+    return;
+  }
+  if (!image) return;
+  const state = store.getState();
+  const clip = effectClip("image", {
+    clipId: newId("clip"),
+    atMs,
+    layer: 0,
+    color: state.clipColor,
+    showMs: Math.max(state.show.audio.durationMs, showDurationMs(state.show)),
+    beatMs: beatMs(store),
+    image,
+  });
+  if (!clip) return;
+  clip.layer = freeLayer(state.show.clips, clip.startMs, clip.endMs, layer);
+  store.dispatch({ type: "addClips", clips: [clip], select: clip.id });
+  toast(`Image added at ${formatTime(clip.startMs)}`, true);
+}
+
+/** Swap the selected image clip's picture, keeping its timing. */
+export async function replaceImage(
+  store: EditorStore,
+  toast: Toast,
+): Promise<void> {
+  const clip = selectedClip(store);
+  if (clip?.shape.kind !== "image") return;
+  const fit = clip.shape.fit;
+  let image: ImageShape | null;
+  try {
+    image = await pickImage();
+  } catch {
+    toast("Couldn’t read that picture");
+    return;
+  }
+  if (!image) return;
+  const shape = { ...image, fit };
+  store.dispatch({
+    type: "updateClip",
+    id: clip.id,
+    patch: { shape, color: averageColor(shape) },
+  });
+  toast("Picture replaced", true);
 }
 
 export function deleteSelected(store: EditorStore, toast: Toast): void {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { clipKindLabel, type ClipPatch } from "@/components/editor/clips";
 import { formatTime } from "@/components/editor/snap";
 import { newId } from "@/components/editor/store";
@@ -9,10 +9,17 @@ import {
   useEditorStore,
 } from "@/components/editor/store-context";
 import type { StateCounts } from "@/lib/host-map";
-import type { Clip, Direction, PatternShape } from "@/lib/types";
+import type {
+  Clip,
+  Direction,
+  ImageFit,
+  ImageShape,
+  PatternShape,
+} from "@/lib/types";
 import {
   beatMs,
   deleteSelected,
+  replaceImage,
   duplicateSelected,
   splitSelected,
   type Toast,
@@ -197,35 +204,43 @@ function ClipPanel({ clip, toast }: { clip: Clip; toast: Toast }) {
         </span>
       </div>
 
-      <Field label="Colour">
-        <div className={styles.swatchRow}>
-          {SWATCHES.map((c) => (
-            <button
-              key={c}
-              type="button"
-              style={{ background: c }}
-              aria-label={`Colour ${c}`}
-              aria-pressed={c === clip.color}
-              onClick={() => {
-                update({ color: c });
-                store.dispatch({ type: "setClipColor", color: c });
-              }}
-            />
-          ))}
-          <label className={styles.customColor} title="Any colour">
-            <input
-              type="color"
-              value={clip.color}
-              onChange={(e) =>
-                update(
-                  { color: e.target.value.toLowerCase() },
-                  `color-${clip.id}`,
-                )
-              }
-            />
-          </label>
-        </div>
-      </Field>
+      {shape.kind === "image" ? (
+        <ImageFields
+          shape={shape}
+          onFit={(fit) => update({ shape: { ...shape, fit } })}
+          onReplace={() => void replaceImage(store, toast)}
+        />
+      ) : (
+        <Field label="Colour">
+          <div className={styles.swatchRow}>
+            {SWATCHES.map((c) => (
+              <button
+                key={c}
+                type="button"
+                style={{ background: c }}
+                aria-label={`Colour ${c}`}
+                aria-pressed={c === clip.color}
+                onClick={() => {
+                  update({ color: c });
+                  store.dispatch({ type: "setClipColor", color: c });
+                }}
+              />
+            ))}
+            <label className={styles.customColor} title="Any colour">
+              <input
+                type="color"
+                value={clip.color}
+                onChange={(e) =>
+                  update(
+                    { color: e.target.value.toLowerCase() },
+                    `color-${clip.id}`,
+                  )
+                }
+              />
+            </label>
+          </div>
+        </Field>
+      )}
 
       {pattern ? (
         <PatternFields pattern={pattern} setPattern={setPattern} />
@@ -431,6 +446,54 @@ function PatternFields({
         </>
       );
   }
+}
+
+/** An image clip's picture, how it sits on the room, and replacing it. */
+function ImageFields({
+  shape,
+  onFit,
+  onReplace,
+}: {
+  shape: ImageShape;
+  onFit: (fit: ImageFit) => void;
+  onReplace: () => void;
+}) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
+    canvas.width = shape.w;
+    canvas.height = shape.h;
+    const data = ctx.createImageData(shape.w, shape.h);
+    for (let i = 0; i < data.data.length; i++) {
+      data.data[i] = parseInt(shape.pixels.slice(i * 2, i * 2 + 2), 16);
+    }
+    ctx.putImageData(data, 0, 0);
+  }, [shape]);
+  return (
+    <>
+      <Field label="Picture" value={`${shape.w} × ${shape.h}`}>
+        <div className={styles.picture}>
+          <canvas ref={ref} aria-label="The picture" />
+          <button type="button" className={styles.ghost} onClick={onReplace}>
+            Replace
+          </button>
+        </div>
+      </Field>
+      <Field label="On the crowd">
+        <Segmented
+          label="How the picture sits on the crowd"
+          options={[
+            ["cover", "Fill", "Cover the whole crowd, cropping the edges"],
+            ["contain", "Fit", "Show the whole picture"],
+          ]}
+          value={shape.fit}
+          onChange={onFit}
+        />
+      </Field>
+    </>
+  );
 }
 
 /** Blink on any clip: hard (strobe) or soft (pulse), and how fast. */

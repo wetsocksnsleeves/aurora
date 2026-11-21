@@ -127,6 +127,7 @@ export function clipKindLabel(clip: Clip): string {
   const shape = clip.shape;
   if (shape.kind === "fill") return "Fill";
   if (shape.kind === "pattern") return PATTERN_LABELS[shape.pattern];
+  if (shape.kind === "image") return "Image";
   return shape.moveTo ? "Moving shape" : "Shape";
 }
 

@@ -38,6 +38,22 @@ const SHOW: Show = {
       label: "Strobe",
     },
     {
+      id: "picture",
+      layer: 5,
+      startMs: 0,
+      endMs: 500,
+      color: "#ff0000",
+      fadeInMs: 0,
+      fadeOutMs: 0,
+      shape: {
+        kind: "image",
+        w: 2,
+        h: 1,
+        pixels: "ff0000ff00000000",
+        fit: "cover",
+      },
+    },
+    {
       id: "wave",
       layer: 4,
       startMs: 0,

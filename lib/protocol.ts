@@ -659,6 +659,19 @@ const DIRECTIONS: readonly Direction[] = ["left", "right", "up", "down"];
 
 function clipShape(v: Rec): ClipShape {
   if (v.kind === "fill") return { kind: "fill" };
+  if (v.kind === "image") {
+    const fit = str(v, "fit");
+    if (fit !== "cover" && fit !== "contain") {
+      throw new InvalidMessage("image `fit` must be cover or contain");
+    }
+    return {
+      kind: "image",
+      w: num(v, "w"),
+      h: num(v, "h"),
+      pixels: str(v, "pixels"),
+      fit,
+    };
+  }
   if (v.kind === "pattern") {
     const pattern = str(v, "pattern") as PatternKind;
     const direction = str(v, "direction") as Direction;

@@ -1,6 +1,7 @@
 // Schedule compiler (SPEC 3.3). Pure: no Node or browser globals, so the
 // server worker, the editor preview and the test harness all share it.
 
+import { imagePixel } from "./image";
 import { blinkLevel, patternLevel } from "./patterns";
 import type { Clip, Point, Schedule, Show, Venue } from "./types";
 
@@ -25,6 +26,8 @@ type PreparedClip = {
   rgb: Rgb;
   /** Hit test result for a fill or static polygon, filled in on first use. */
   staticHit: boolean | undefined;
+  /** An image clip's pixel at this seat, filled in on first use. */
+  seatRgb: Rgb | null | undefined;
 };
 
 /**
@@ -75,7 +78,7 @@ export function colorAt(show: Show, seat: Point, tMs: number): string {
       topLevel = level;
     }
   }
-  return top ? shade(parseColor(top.color), top, tMs, topLevel) : BLACK;
+  return top ? shade(clipRgb(top, p) ?? BLACK_RGB, top, tMs, topLevel) : BLACK;
 }
 
 /**
@@ -163,6 +166,7 @@ function prepareClips(show: Show): PreparedClip[] {
       clip,
       rgb: parseColor(clip.color),
       staticHit: undefined,
+      seatRgb: undefined,
     }));
 }
 
@@ -176,7 +180,13 @@ function sample(clips: PreparedClip[], p: Point, tMs: number): string {
     } else {
       level = coverage(c.clip, p, tMs);
     }
-    if (level > 0) return shade(c.rgb, c.clip, tMs, level);
+    if (level <= 0) continue;
+    if (c.clip.shape.kind === "image") {
+      // The seat's pixel never changes: look it up once.
+      if (c.seatRgb === undefined) c.seatRgb = clipRgb(c.clip, p);
+      return shade(c.seatRgb ?? BLACK_RGB, c.clip, tMs, level);
+    }
+    return shade(c.rgb, c.clip, tMs, level);
   }
   return BLACK;
 }
@@ -188,7 +198,7 @@ function isActive(clip: Clip, tMs: number): boolean {
 /** A fill or a polygon that doesn't move: whether it covers a seat never changes. */
 function isStatic(clip: Clip): boolean {
   const shape = clip.shape;
-  if (shape.kind === "fill") return true;
+  if (shape.kind === "fill" || shape.kind === "image") return true;
   if (shape.kind === "pattern") return false;
   const move = shape.moveTo;
   return !move || (move.x === 0 && move.y === 0);
@@ -209,6 +219,7 @@ export function coverage(clip: Clip, p: Point, tMs: number): number {
   if (on <= 0) return 0;
   const shape = clip.shape;
   if (shape.kind === "fill") return on;
+  if (shape.kind === "image") return imagePixel(shape, p) ? on : 0;
   const progress = (tMs - clip.startMs) / (clip.endMs - clip.startMs);
   if (shape.kind === "pattern") {
     return on * patternLevel(shape, p, progress, tMs);
@@ -225,6 +236,15 @@ export function coverage(clip: Clip, p: Point, tMs: number): number {
   )
     ? on
     : 0;
+}
+
+const BLACK_RGB: Rgb = { r: 0, g: 0, b: 0 };
+
+/** The colour a clip gives seat `p`: its own, or an image's pixel there. */
+function clipRgb(clip: Clip, p: Point): Rgb | null {
+  return clip.shape.kind === "image"
+    ? imagePixel(clip.shape, p)
+    : parseColor(clip.color);
 }
 
 function shade(rgb: Rgb, clip: Clip, tMs: number, level: number): string {

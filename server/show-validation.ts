@@ -3,6 +3,8 @@ import {
   type Blink,
   type Clip,
   type Direction,
+  type ImageShape,
+  MAX_IMAGE_SIDE,
   type PatternKind,
   type PatternShape,
   type Point,
@@ -148,8 +150,10 @@ function parseClip(value: unknown, at: string): Clip {
           };
   } else if (shape.kind === "pattern") {
     parsedShape = parsePattern(shape, `${at}.shape`);
+  } else if (shape.kind === "image") {
+    parsedShape = parseImage(shape, `${at}.shape`);
   } else {
-    fail(`${at}.shape.kind must be "fill", "polygon" or "pattern"`);
+    fail(`${at}.shape.kind must be "fill", "polygon", "pattern" or "image"`);
   }
   const clip: Clip = {
     id: nonEmptyString(value.id, `${at}.id`),
@@ -205,6 +209,31 @@ function parsePattern(
     from,
     to,
   };
+}
+
+const PIXELS = /^[0-9a-f]*$/;
+
+function parseImage(shape: Record<string, unknown>, at: string): ImageShape {
+  const side = (value: unknown, name: string) => {
+    const n = finite(value, `${at}.${name}`);
+    if (!Number.isInteger(n) || n < 1 || n > MAX_IMAGE_SIDE) {
+      fail(`${at}.${name} must be a whole number from 1 to ${MAX_IMAGE_SIDE}`);
+    }
+    return n;
+  };
+  const w = side(shape.w, "w");
+  const h = side(shape.h, "h");
+  if (
+    typeof shape.pixels !== "string" ||
+    shape.pixels.length !== w * h * 8 ||
+    !PIXELS.test(shape.pixels)
+  ) {
+    fail(`${at}.pixels must be ${w * h} "rrggbbaa" hex pixels`);
+  }
+  if (shape.fit !== "cover" && shape.fit !== "contain") {
+    fail(`${at}.fit must be "cover" or "contain"`);
+  }
+  return { kind: "image", w, h, pixels: shape.pixels, fit: shape.fit };
 }
 
 function parseBlink(value: unknown, at: string): Blink {

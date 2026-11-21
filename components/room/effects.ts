@@ -1,5 +1,12 @@
 import type { ToolId } from "@/components/editor/store";
-import type { Clip, ClipShape, PatternKind, PatternShape } from "@/lib/types";
+import { averageColor } from "@/lib/image";
+import type {
+  Clip,
+  ClipShape,
+  ImageShape,
+  PatternKind,
+  PatternShape,
+} from "@/lib/types";
 
 /**
  * The effects library (left panel). Each effect is a clip with good
@@ -15,6 +22,7 @@ export type EffectId =
   | "chase"
   | "sparkle"
   | "wash"
+  | "image"
   | "draw"
   | "brush";
 
@@ -25,6 +33,8 @@ export type Effect = {
   hint: string;
   /** Effects that draw on the room instead of adding a clip straight away. */
   tool?: ToolId;
+  /** Asks for a picture first. */
+  upload?: boolean;
 };
 
 export const EFFECTS: readonly Effect[] = [
@@ -36,6 +46,12 @@ export const EFFECTS: readonly Effect[] = [
   { id: "chase", label: "Chase", hint: "Columns light in turn" },
   { id: "sparkle", label: "Sparkle", hint: "Random phones twinkle" },
   { id: "wash", label: "Colour wash", hint: "Everyone, held" },
+  {
+    id: "image",
+    label: "Image",
+    hint: "Your picture across the crowd",
+    upload: true,
+  },
   {
     id: "draw",
     label: "Draw a shape",
@@ -77,8 +93,15 @@ type Recipe = Pick<Clip, "fadeInMs" | "fadeOutMs" | "blink" | "label"> & {
   shape: ClipShape;
 };
 
-/** Defaults for an effect. `beatMs` (from the BPM) sets rhythmic ones. */
-function recipe(id: EffectId, beatMs: number): Recipe | null {
+/**
+ * Defaults for an effect. `beatMs` (from the BPM) sets rhythmic ones; an
+ * image effect needs its picture.
+ */
+function recipe(
+  id: EffectId,
+  beatMs: number,
+  image?: ImageShape,
+): Recipe | null {
   const plain = { fadeInMs: 0, fadeOutMs: 0 };
   switch (id) {
     case "flash":
@@ -133,11 +156,42 @@ function recipe(id: EffectId, beatMs: number): Recipe | null {
         shape: { kind: "fill" },
         label: "Colour wash",
       };
+    case "image":
+      return image
+        ? {
+            fadeInMs: 300,
+            fadeOutMs: 300,
+            lengthMs: 4000,
+            shape: image,
+          }
+        : null;
     case "draw":
     case "brush":
       return null;
   }
 }
+
+/**
+ * A small picture for the Image card's preview: a sunset with a sun.
+ */
+export const DEMO_IMAGE: ImageShape = (() => {
+  const w = 16;
+  const h = 12;
+  let pixels = "";
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const sun = Math.hypot(x - 8, y - 7) < 3.2;
+      const t = y / (h - 1);
+      const r = sun ? 255 : Math.round(255 - 120 * t);
+      const g = sun ? 230 : Math.round(95 + 40 * (1 - t) - 70 * t);
+      const b = sun ? 120 : Math.round(140 + 100 * t);
+      pixels += [r, g, b, 255]
+        .map((v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, "0"))
+        .join("");
+    }
+  }
+  return { kind: "image", w, h, pixels, fit: "cover" };
+})();
 
 /**
  * A clip for `id` starting at `atMs`, or null for drawing effects. Kept
@@ -152,9 +206,11 @@ export function effectClip(
     color: string;
     showMs: number;
     beatMs: number;
+    /** The picture, for an image effect. */
+    image?: ImageShape;
   },
 ): Clip | null {
-  const r = recipe(id, opts.beatMs);
+  const r = recipe(id, opts.beatMs, opts.image);
   if (!r) return null;
   const lengthMs = Math.min(r.lengthMs, Math.max(100, opts.showMs));
   const startMs = Math.max(
@@ -166,7 +222,8 @@ export function effectClip(
     layer: opts.layer,
     startMs,
     endMs: startMs + lengthMs,
-    color: opts.color,
+    // An image clip shows on the timeline in its picture's main colour.
+    color: r.shape.kind === "image" ? averageColor(r.shape) : opts.color,
     fadeInMs: r.fadeInMs,
     fadeOutMs: r.fadeOutMs,
     shape: r.shape,

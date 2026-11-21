@@ -795,6 +795,22 @@
   color: var(--fg);
 }
 
+.picture {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.picture canvas {
+  width: 96px;
+  max-height: 72px;
+  object-fit: contain;
+  border-radius: 8px;
+  image-rendering: pixelated;
+  background: #000;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
 .pair {
   display: grid;
   grid-template-columns: 1fr 1fr;
