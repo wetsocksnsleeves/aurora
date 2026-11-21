@@ -313,6 +313,15 @@ export class SweepCalibrator {
     return { f: r.median, pairs: est.length };
   }
 
+  /**
+   * The best focal length so far, for when the sweep has to stop: the median
+   * of every estimate if they roughly agree (within 10%), else null.
+   */
+  bestGuess(): number | null {
+    const r = robust(this.estimates());
+    return r && r.spread <= 0.1 ? r.median : null;
+  }
+
   /** 0..1, for a progress bar. */
   get progress(): number {
     return Math.min(1, this.estimates().length / 2);
