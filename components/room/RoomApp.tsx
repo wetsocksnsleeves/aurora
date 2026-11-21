@@ -62,6 +62,8 @@ import { MusicChooserProvider } from "./MusicChooser";
 import { ShowPicker } from "./ShowPicker";
 import { Timeline } from "./timeline/Timeline";
 import { CameraPanel } from "./camera/CameraPanel";
+import { Splitter } from "./Splitter";
+import { usePanels } from "./use-panels";
 import { useCamera } from "./camera/use-camera";
 import { useDecodedAudio, usePlayback } from "./timeline/playback";
 import { useRoomPointer } from "./use-room-pointer";
@@ -74,6 +76,9 @@ const wordmark = Space_Grotesk({ subsets: ["latin"], weight: "700" });
 
 /** Edits wait this long before they are saved and sent to the phones. */
 const AUTOSAVE_MS = 800;
+/** The studio grid's outer padding and the gap between panels (px). */
+const STUDIO_PAD = 12;
+const STUDIO_GAP = 12;
 /** A failed save is retried after this long. */
 const RETRY_MS = 3_000;
 
@@ -268,6 +273,7 @@ function Studio({
   const frameRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLElement>(null);
   const camera = useCamera();
+  const panels = usePanels();
   const [cameraOpen, setCameraOpen] = useState(false);
   const [presenting, setPresenting] = useState(false);
   useEffect(() => {
@@ -466,8 +472,18 @@ function Studio({
           </div>
         </header>
 
-        <div className={styles.studio}>
-          <Library audio={decoded} disabled={locked} toast={toast} />
+        <div
+          className={styles.studio}
+          style={{
+            gridTemplateColumns: `${panels.sizes.left}px minmax(0, 1fr) ${panels.sizes.right}px`,
+            gridTemplateRows: `minmax(0, 1fr) ${panels.sizes.bottom}px`,
+          }}
+        >
+          <div
+            className={panels.sizes.left ? styles.contents : styles.hiddenPanel}
+          >
+            <Library audio={decoded} disabled={locked} toast={toast} />
+          </div>
           <section
             ref={stageRef}
             className={styles.stage}
@@ -545,17 +561,63 @@ function Studio({
               </div>
             ) : null}
           </section>
-          <Inspector
-            counts={counts}
-            playing={playing}
-            readOnly={readOnly}
-            toast={toast}
+          <div
+            className={
+              panels.sizes.right ? styles.contents : styles.hiddenPanel
+            }
+          >
+            <Inspector
+              counts={counts}
+              playing={playing}
+              readOnly={readOnly}
+              toast={toast}
+            />
+          </div>
+          <div
+            className={
+              panels.sizes.bottom ? styles.contents : styles.hiddenPanel
+            }
+          >
+            <Timeline
+              audio={decoded}
+              locked={playing}
+              readOnly={readOnly}
+              toast={toast}
+            />
+          </div>
+          {/* Dividers sit in the gaps between the room and the panels. */}
+          <Splitter
+            panel="left"
+            size={panels.sizes.left}
+            style={{
+              left: STUDIO_PAD + panels.sizes.left + STUDIO_GAP / 2,
+              top: 0,
+              bottom: STUDIO_PAD + panels.sizes.bottom + STUDIO_GAP,
+            }}
+            onResize={(px, from) => panels.resize("left", px, from)}
+            onToggle={() => panels.toggle("left")}
           />
-          <Timeline
-            audio={decoded}
-            locked={playing}
-            readOnly={readOnly}
-            toast={toast}
+          <Splitter
+            panel="right"
+            size={panels.sizes.right}
+            style={{
+              right: STUDIO_PAD + panels.sizes.right + STUDIO_GAP / 2,
+              top: 0,
+              bottom: STUDIO_PAD + panels.sizes.bottom + STUDIO_GAP,
+            }}
+            onResize={(px, from) => panels.resize("right", px, from)}
+            onToggle={() => panels.toggle("right")}
+          />
+          <Splitter
+            panel="bottom"
+            size={panels.sizes.bottom}
+            style={{
+              left: STUDIO_PAD,
+              right: STUDIO_PAD,
+              bottom: STUDIO_PAD + panels.sizes.bottom + STUDIO_GAP / 2,
+            }}
+            onResize={(px, from) => panels.resize("bottom", px, from)}
+            onToggle={() => panels.toggle("bottom")}
           />
         </div>
       </MusicChooserProvider>

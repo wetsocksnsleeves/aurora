@@ -487,13 +487,99 @@
 /* Studio */
 
 .studio {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: grid;
+  /* Columns and rows come from the panel sizes (RoomApp). */
   grid-template-columns: 292px minmax(0, 1fr) 312px;
-  grid-template-rows: minmax(0, 1fr) clamp(240px, 36dvh, 380px);
+  grid-template-rows: minmax(0, 1fr) 300px;
   gap: 12px;
   padding: 0 12px 12px;
+}
+
+/* A panel's wrapper: invisible to the grid, or hiding the panel. */
+.contents {
+  display: contents;
+}
+
+.hiddenPanel {
+  display: none;
+}
+
+/* Fixed places, so hiding a panel leaves the others where they are. */
+.studio > .contents > .library {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.studio > .stage {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.studio > .contents > .side {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.splitter {
+  position: absolute;
+  z-index: 9;
+  display: grid;
+  place-items: center;
+  touch-action: none;
+}
+
+.splitter[data-panel="left"],
+.splitter[data-panel="right"] {
+  width: 12px;
+  transform: translateX(-50%);
+  cursor: col-resize;
+}
+
+.splitter[data-panel="right"] {
+  transform: translateX(50%);
+}
+
+.splitter[data-panel="bottom"] {
+  height: 12px;
+  transform: translateY(50%);
+  cursor: row-resize;
+}
+
+/* A grip that shows on hover. */
+.splitter i {
+  border-radius: 2px;
+  background: rgb(255 255 255 / 0.28);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.splitter[data-panel="left"] i,
+.splitter[data-panel="right"] i {
+  width: 4px;
+  height: 44px;
+}
+
+.splitter[data-panel="bottom"] i {
+  width: 44px;
+  height: 4px;
+}
+
+.splitter:hover i,
+.splitter:active i {
+  opacity: 1;
+}
+
+/* A hidden panel's tab, always visible, to bring it back. */
+.splitter[data-hidden] {
+  cursor: pointer;
+}
+
+.splitter[data-hidden] i {
+  opacity: 1;
+  background: rgb(255 255 255 / 0.4);
 }
 
 /* The side panels: solid raised cards. */
