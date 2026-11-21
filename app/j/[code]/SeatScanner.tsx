@@ -25,12 +25,15 @@ import { roomToVenuePoint } from "@/lib/positioning/seat";
 import type { Point, PositioningConfig } from "@/lib/types";
 import {
   FrameGrabber,
+  avoidCamera,
   followMotion,
+  openCamera,
   openRearCamera,
   plausibleFov,
   rememberLens,
   rememberedLens,
   type Lens,
+  type RearCamera,
 } from "./camera-seat";
 import styles from "./participant.module.css";
 
@@ -61,6 +64,11 @@ const GUIDE_EXIT_TOLERANCE = 0.09;
 const STILL_VIEW_PER_SEC = 0.12;
 /** A turn this fast (degrees per second) is never still. */
 const MOVING_DPS = 15;
+/**
+ * A view measured wider than this is an ultra-wide lens: if the phone has
+ * another back camera, switch to it. Main cameras are 60 to 85 degrees.
+ */
+const ULTRA_WIDE_FOV = 95;
 /** Rough camera-to-callback delay when the browser doesn't report it. */
 const FRAME_LATENCY_MS = 40;
 /**
@@ -120,6 +128,10 @@ export function SeatScanner({
     let stream: MediaStream | null = null;
     let cameraLabel = "";
     let cameras: string[] = [];
+    let camera: RearCamera | null = null;
+    // Bumped when the camera changes, so the old frame loop stops.
+    let generation = 0;
+    let cameraHow = "";
     // `?debug` shows what the scanner sees, for checking a phone by eye.
     const debugOn = new URLSearchParams(window.location.search).has("debug");
     let frames = 0;
@@ -269,6 +281,11 @@ export function SeatScanner({
       const p = robust(perspective);
       if (p && p.n >= 10 && p.spread < 0.03) {
         const fov = fovFromFocal(p.median, w, h);
+        // An ultra-wide: try the main camera, if there's another to try.
+        if (fov > ULTRA_WIDE_FOV && camera?.others.length) {
+          void switchCamera(fov);
+          return;
+        }
         if (plausibleFov(fov)) {
           measured = { fov, source: "view" };
           return finish();
@@ -322,7 +339,7 @@ export function SeatScanner({
         const p = robust(perspective);
         setDebug(
           [
-            `using: ${cameraLabel || "?"}`,
+            `using: ${cameraLabel || "?"} (${cameraHow})`,
             `cameras: ${cameras.join(" | ") || "?"}`,
             `video ${video.videoWidth}x${video.videoHeight}, detect ${w}x${h}`,
             `lens ${lens.fov.toFixed(0)}° ${lens.source}` +
@@ -385,25 +402,93 @@ export function SeatScanner({
       }
     };
 
-    const loop = (_now: number, meta?: VideoFrameCallbackMetadata) => {
+    const runLoop = () => {
+      const gen = generation;
+      const loop = (_now: number, meta?: VideoFrameCallbackMetadata) => {
+        if (stopped || gen !== generation) return;
+        // Use the capture time when the browser reports it, so frames line
+        // up with gyro readings; otherwise assume a typical lag.
+        const t = meta?.captureTime ?? performance.now() - FRAME_LATENCY_MS;
+        onFrame(t);
+        if (stopped || gen !== generation) return;
+        if (video.requestVideoFrameCallback)
+          video.requestVideoFrameCallback(loop);
+        else requestAnimationFrame((now) => loop(now));
+      };
+      loop(performance.now());
+    };
+
+    // Show the camera once a couple of frames have arrived: the first ones
+    // can come in small before the stream settles.
+    const reveal = (n: number) => {
       if (stopped) return;
-      // Use the capture time when the browser reports it, so frames line up
-      // with gyro readings; otherwise assume a typical lag.
-      const t = meta?.captureTime ?? performance.now() - FRAME_LATENCY_MS;
-      onFrame(t);
-      if (stopped) return;
-      if (video.requestVideoFrameCallback)
-        video.requestVideoFrameCallback(loop);
-      else requestAnimationFrame((now) => loop(now));
+      if (n <= 0) setVideoReady(true);
+      else if (video.requestVideoFrameCallback) {
+        video.requestVideoFrameCallback(() => reveal(n - 1));
+      } else setTimeout(() => reveal(0), 200);
+    };
+
+    const show = async (next: MediaStream) => {
+      stream = next;
+      video.srcObject = next;
+      await video.play().catch(() => {});
+      reveal(2);
+      lens = rememberedLens(cameraLabel, video.videoWidth, video.videoHeight);
+      runLoop();
+    };
+
+    /**
+     * The scan measured an ultra-wide: remember not to use it, open the next
+     * back camera and start the hold again.
+     */
+    const switchCamera = async (fov: number) => {
+      if (!camera) return;
+      const [next, ...rest] = camera.others;
+      if (!next) return;
+      avoidCamera(camera.deviceId);
+      generation++;
+      setVideoReady(false);
+      setHint("Switching to your main camera");
+      setProgress(0);
+      stream?.getTracks().forEach((t) => t.stop());
+      let opened: MediaStream;
+      try {
+        opened = await openCamera(next);
+      } catch {
+        setError("Couldn't switch camera. Go back and try again.");
+        return;
+      }
+      if (stopped) {
+        opened.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      const label = opened.getVideoTracks()[0]?.label ?? "";
+      camera = {
+        ...camera,
+        stream: opened,
+        deviceId: next,
+        label,
+        others: rest,
+      };
+      cameraLabel = label;
+      cameraHow = `switched from an ultra-wide (${fov.toFixed(0)}°)`;
+      samples.length = 0;
+      perspective.length = 0;
+      lastSeen = null;
+      frames = 0;
+      hits = 0;
+      setHint("Point at the big screen");
+      await show(opened);
     };
 
     void (async () => {
       if (await motion) stopMotion = followMotion(gyro);
       try {
-        const camera = await openRearCamera();
+        camera = await openRearCamera();
         stream = camera.stream;
         cameraLabel = camera.label;
         cameras = camera.cameras;
+        cameraHow = camera.how;
       } catch {
         setError(
           "Couldn't open the camera. Allow camera access for this site, then try again.",
@@ -414,20 +499,7 @@ export function SeatScanner({
         stream.getTracks().forEach((t) => t.stop());
         return;
       }
-      video.srcObject = stream;
-      await video.play().catch(() => {});
-      // Show the camera once a couple of frames have arrived: the first
-      // ones can come in small before the stream settles.
-      const reveal = (n: number) => {
-        if (stopped) return;
-        if (n <= 0) setVideoReady(true);
-        else if (video.requestVideoFrameCallback) {
-          video.requestVideoFrameCallback(() => reveal(n - 1));
-        } else setTimeout(() => reveal(0), 200);
-      };
-      reveal(2);
-      lens = rememberedLens(cameraLabel, video.videoWidth, video.videoHeight);
-      loop(performance.now());
+      await show(stream);
     })();
 
     return stop;

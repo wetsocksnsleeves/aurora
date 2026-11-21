@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { mainBackCamera, plausibleFov } from "./camera-seat";
+import {
+  androidBackCameras,
+  mainBackCamera,
+  plausibleFov,
+  rankBackCameras,
+} from "./camera-seat";
 
 const cam = (deviceId: string, label: string) => ({
   deviceId,
@@ -46,6 +51,35 @@ describe("mainBackCamera", () => {
       ]),
     ).toBeNull();
     expect(mainBackCamera([])).toBeNull();
+  });
+});
+
+describe("rankBackCameras", () => {
+  const backs = androidBackCameras([
+    cam("main", "camera 3, facing back"),
+    cam("uw", "camera 0, facing back"),
+    cam("tele", "camera 2, facing back"),
+  ]);
+
+  it("puts the camera with the flash and autofocus first", () => {
+    const traits = new Map([
+      ["main", { torch: true, autofocus: true }],
+      ["uw", { torch: false, autofocus: false }],
+      ["tele", { torch: false, autofocus: true }],
+    ]);
+    expect(rankBackCameras(backs, traits)).toEqual(["main", "tele", "uw"]);
+  });
+
+  it("falls back to the lowest number when cameras can't tell", () => {
+    expect(rankBackCameras(backs, new Map())).toEqual(["uw", "tele", "main"]);
+  });
+
+  it("puts cameras a scan found to be ultra-wide last", () => {
+    expect(rankBackCameras(backs, new Map(), ["uw"])).toEqual([
+      "tele",
+      "main",
+      "uw",
+    ]);
   });
 });
 

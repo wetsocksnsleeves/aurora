@@ -54,71 +54,255 @@ const VIDEO: MediaTrackConstraints = {
 /** Back lenses that aren't the main camera, when the browser names them. */
 const NOT_MAIN = /ultra|wide|tele|macro|depth|tof|zoom|mono/i;
 
+type DeviceInfo = Pick<MediaDeviceInfo, "deviceId" | "kind" | "label">;
+
+/** What a camera can do, as far as choosing the main one goes. */
+export type CameraTraits = { torch: boolean; autofocus: boolean };
+
 /**
- * The main back camera's device id, when the browser's choice may not be
- * it. Chrome on Android names cameras "camera2 N, facing back" or
- * "camera N, facing back" (Samsung S23), and "facing environment" often
- * opens an ultra-wide or telephoto lens; the lowest numbered back camera is
- * the main one on nearly every phone. Other browsers (iPhone Safari)
- * already pick the main camera: null.
+ * Android back cameras, as Chrome names them: "camera2 N, facing back" or
+ * "camera N, facing back" (Samsung S23). Other browsers (iPhone Safari)
+ * name them differently and already open the main camera: none here.
  */
-export function mainBackCamera(
-  devices: readonly Pick<MediaDeviceInfo, "deviceId" | "kind" | "label">[],
-): string | null {
-  let best: { id: string; n: number } | null = null;
+export function androidBackCameras(
+  devices: readonly DeviceInfo[],
+): { deviceId: string; label: string; n: number }[] {
+  const out: { deviceId: string; label: string; n: number }[] = [];
   for (const d of devices) {
     if (d.kind !== "videoinput") continue;
     const m = /(\d+),\s*facing back/i.exec(d.label);
-    if (!m || NOT_MAIN.test(d.label)) continue;
-    const n = Number(m[1]);
-    if (!best || n < best.n) best = { id: d.deviceId, n };
+    if (m) out.push({ deviceId: d.deviceId, label: d.label, n: Number(m[1]) });
   }
-  return best?.id ?? null;
+  return out;
 }
+
+/**
+ * Back cameras, most likely main first. The main camera nearly always has
+ * the flash and autofocus; ultra-wides are usually fixed focus without a
+ * flash. Then names that say "ultra" or "tele" go last, then the lowest
+ * number (the main camera on nearly every phone). Cameras in `avoid` (seen
+ * to be ultra-wide) go to the very end.
+ */
+export function rankBackCameras(
+  cameras: readonly { deviceId: string; label: string; n: number }[],
+  traits: ReadonlyMap<string, CameraTraits>,
+  avoid: readonly string[] = [],
+): string[] {
+  const score = (c: { deviceId: string; label: string }) => {
+    const t = traits.get(c.deviceId);
+    let s = 0;
+    if (t?.torch) s += 4;
+    if (t?.autofocus) s += 2;
+    if (NOT_MAIN.test(c.label)) s -= 3;
+    if (avoid.includes(c.deviceId)) s -= 100;
+    return s;
+  };
+  return [...cameras]
+    .sort((a, b) => score(b) - score(a) || a.n - b.n)
+    .map((c) => c.deviceId);
+}
+
+/** The former `mainBackCamera`: the best back camera by name alone. */
+export function mainBackCamera(devices: readonly DeviceInfo[]): string | null {
+  return rankBackCameras(androidBackCameras(devices), new Map())[0] ?? null;
+}
+
+function traitsOf(track: MediaStreamTrack | undefined): CameraTraits {
+  const caps = (track?.getCapabilities?.() ?? {}) as MediaTrackCapabilities & {
+    torch?: boolean;
+    focusMode?: string[];
+  };
+  return {
+    torch: caps.torch === true,
+    autofocus: caps.focusMode?.includes("continuous") ?? false,
+  };
+}
+
+// -- Camera memory ---------------------------------------------------------
+
+const CAMERA_KEY = "lightshow-camera-v1";
+
+type CameraMemory = {
+  /** The camera that worked last time. */
+  chosen: string | null;
+  /** Cameras a scan measured as ultra-wide. */
+  avoid: string[];
+};
+
+function readCameraMemory(): CameraMemory {
+  try {
+    const saved = JSON.parse(
+      localStorage.getItem(CAMERA_KEY) ?? "{}",
+    ) as Partial<CameraMemory>;
+    return {
+      chosen: typeof saved.chosen === "string" ? saved.chosen : null,
+      avoid: Array.isArray(saved.avoid)
+        ? saved.avoid.filter((a) => typeof a === "string")
+        : [],
+    };
+  } catch {
+    return { chosen: null, avoid: [] };
+  }
+}
+
+function writeCameraMemory(memory: CameraMemory): void {
+  try {
+    localStorage.setItem(CAMERA_KEY, JSON.stringify(memory));
+  } catch {
+    // Not remembered: the next scan chooses again.
+  }
+}
+
+/** A scan found this camera to be an ultra-wide: don't pick it again. */
+export function avoidCamera(deviceId: string): void {
+  const memory = readCameraMemory();
+  writeCameraMemory({
+    chosen: memory.chosen === deviceId ? null : memory.chosen,
+    avoid: [...new Set([...memory.avoid, deviceId])],
+  });
+}
+
+// -- Opening ---------------------------------------------------------------
 
 export type RearCamera = {
   stream: MediaStream;
+  deviceId: string;
   label: string;
-  /** Every camera's name, for the debug view. */
+  /** Other back cameras to try, best first (Android only). */
+  others: string[];
+  /** Every camera's name, and how this one was chosen, for the debug view. */
   cameras: string[];
+  how: string;
 };
 
-/**
- * Open the main back camera. Asks for "the back camera" first (camera
- * names are only listed once permission is granted), then switches to the
- * main one if the browser picked another lens.
- */
-export async function openRearCamera(): Promise<RearCamera> {
-  let stream = await navigator.mediaDevices.getUserMedia({
-    audio: false,
-    video: { ...VIDEO, facingMode: { ideal: "environment" } },
-  });
-  let cameras: string[] = [];
-  try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    cameras = devices
-      .filter((d) => d.kind === "videoinput")
-      .map((d) => d.label || "?");
-    const main = mainBackCamera(devices);
-    const current = stream.getVideoTracks()[0]?.getSettings().deviceId;
-    if (main && current !== main) {
-      stream.getTracks().forEach((t) => t.stop());
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: { ...VIDEO, deviceId: { exact: main } },
-      });
-    }
-  } catch {
-    // Keep whatever camera we have.
-  }
+function open(video: MediaTrackConstraints): Promise<MediaStream> {
+  return navigator.mediaDevices.getUserMedia({ audio: false, video });
+}
+
+/** Open a camera by id, at full size, with continuous focus if it has it. */
+export async function openCamera(deviceId: string): Promise<MediaStream> {
+  const stream = await open({ ...VIDEO, deviceId: { exact: deviceId } });
   const track = stream.getVideoTracks()[0];
-  // Keep refocusing as the phone moves, where the browser allows it.
-  track
+  // Ask again if it came back small (a format kept from an earlier opening).
+  const { width = 0, height = 0 } = track?.getSettings() ?? {};
+  if (Math.max(width, height) < 1280) {
+    await track?.applyConstraints(VIDEO).catch(() => {});
+  }
+  focusContinuously(stream);
+  return stream;
+}
+
+function focusContinuously(stream: MediaStream): void {
+  stream
+    .getVideoTracks()[0]
     ?.applyConstraints({
       advanced: [{ focusMode: "continuous" } as MediaTrackConstraintSet],
     })
     .catch(() => {});
-  return { stream, label: track?.label ?? "", cameras };
+}
+
+function stopAll(stream: MediaStream): void {
+  stream.getTracks().forEach((t) => t.stop());
+}
+
+/**
+ * Open the main back camera. Browsers can only be asked for "a back
+ * camera", and Chrome on Android often opens an ultra-wide or telephoto
+ * lens. So on Android, the first scan briefly opens each back camera, ranks
+ * them by what they can do (`rankBackCameras`), and remembers the winner;
+ * later scans open it straight away. Other browsers keep their choice.
+ */
+export async function openRearCamera(): Promise<RearCamera> {
+  // Camera names are only listed once permission is granted.
+  let stream = await open({ ...VIDEO, facingMode: { ideal: "environment" } });
+  const first = stream.getVideoTracks()[0];
+  const firstId = first?.getSettings().deviceId ?? "";
+  let result: RearCamera = {
+    stream,
+    deviceId: firstId,
+    label: first?.label ?? "",
+    others: [],
+    cameras: [],
+    how: "browser's choice",
+  };
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    result.cameras = devices
+      .filter((d) => d.kind === "videoinput")
+      .map((d) => d.label || "?");
+    const backs = androidBackCameras(devices);
+    if (backs.length < 2) {
+      focusContinuously(stream);
+      return result;
+    }
+    const memory = readCameraMemory();
+    const known = new Set(backs.map((b) => b.deviceId));
+    let ranked: string[];
+    let how: string;
+    if (memory.chosen && known.has(memory.chosen)) {
+      ranked = [
+        memory.chosen,
+        ...rankBackCameras(backs, new Map(), memory.avoid).filter(
+          (id) => id !== memory.chosen,
+        ),
+      ];
+      how = "remembered";
+    } else {
+      // Try each back camera once (only one can be open at a time).
+      const traits = new Map<string, CameraTraits>();
+      traits.set(firstId, traitsOf(first));
+      stopAll(stream);
+      for (const back of backs) {
+        if (traits.has(back.deviceId)) continue;
+        try {
+          // Same size as the real stream: a camera reopened soon after can
+          // come back in the size it was last opened at.
+          const probe = await open({
+            ...VIDEO,
+            deviceId: { exact: back.deviceId },
+          });
+          traits.set(back.deviceId, traitsOf(probe.getVideoTracks()[0]));
+          stopAll(probe);
+        } catch {
+          // Busy or refused: rank it on its name alone.
+        }
+      }
+      ranked = rankBackCameras(backs, traits, memory.avoid);
+      how = `chosen from ${backs.length}: ${ranked
+        .map((id) => {
+          const t = traits.get(id);
+          const n = backs.find((b) => b.deviceId === id)!.n;
+          return `${n}${t?.torch ? " flash" : ""}${t?.autofocus ? " af" : ""}`;
+        })
+        .join(", ")}`;
+      writeCameraMemory({ chosen: ranked[0]!, avoid: memory.avoid });
+    }
+    const best = ranked[0]!;
+    if (stream.getVideoTracks()[0]?.readyState !== "live" || firstId !== best) {
+      stopAll(stream);
+      stream = await openCamera(best);
+    } else {
+      focusContinuously(stream);
+    }
+    const track = stream.getVideoTracks()[0];
+    result = {
+      ...result,
+      stream,
+      deviceId: best,
+      label: track?.label ?? "",
+      others: ranked.slice(1),
+      how,
+    };
+  } catch {
+    // Keep whatever camera we have, or reopen the browser's choice.
+    if (result.stream.getVideoTracks()[0]?.readyState !== "live") {
+      result.stream = await open({
+        ...VIDEO,
+        facingMode: { ideal: "environment" },
+      });
+    }
+  }
+  return result;
 }
 
 /** Copies video frames into a greyscale buffer at processing size. */
