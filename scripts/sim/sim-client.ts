@@ -130,6 +130,10 @@ export class SimClient {
     this.socket?.drop();
   }
 
+  get venue(): Venue | null {
+    return this.client.getSnapshot().venue ?? null;
+  }
+
   get standby(): boolean {
     const s = this.client.getSnapshot();
     return s.readyTapped && s.schedule !== null && s.clockReady;

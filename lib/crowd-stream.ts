@@ -1,5 +1,5 @@
 import { parseColor } from "./compile";
-import type { Point } from "./types";
+import type { Point, Venue } from "./types";
 
 /**
  * Wire format of the simulated crowd stream (`scripts/sim.ts --stream`): each
@@ -10,8 +10,9 @@ import type { Point } from "./types";
  *
  * - Text (JSON) `seats`, sent once per connection and again whenever the
  *   client list or any seat changes:
- *   `{ type: "seats", version: 1, code, seats: ({x, y} | null)[] }`.
+ *   `{ type: "seats", version: 1, code, seats: ({x, y} | null)[], venue? }`.
  *   The array index is the client index; null until a seat is chosen.
+ *   `venue` is the venue outline (0..1 shapes) once any client knows it.
  * - Binary `frame`, ~30 per second: byte 0 is `FRAME_TAG` (0x01), bytes 1-4
  *   are a big-endian uint32 frame counter (wraps), then 3 bytes (R, G, B)
  *   per client in client-index order. Length is `5 + 3 * clients`.
@@ -26,6 +27,7 @@ export type SeatsMessage = {
   version: number;
   code: string;
   seats: (Point | null)[];
+  venue?: Venue;
 };
 
 export type Rgb8 = readonly [number, number, number];
@@ -44,13 +46,18 @@ export function hexToRgbBytes(color: string): Rgb8 {
   return [r, g, b];
 }
 
-export function encodeSeats(code: string, seats: (Point | null)[]): string {
+export function encodeSeats(
+  code: string,
+  seats: (Point | null)[],
+  venue?: Venue | null,
+): string {
   const message: SeatsMessage = {
     type: "seats",
     version: CROWD_STREAM_VERSION,
     code,
     seats: seats.map((s) => (s ? { x: s.x, y: s.y } : null)),
   };
+  if (venue) message.venue = venue;
   return JSON.stringify(message);
 }
 
@@ -89,10 +96,53 @@ export function parseSeats(raw: string): Result<SeatsMessage> {
     }
     seats.push({ x: p.x, y: p.y });
   }
-  return {
-    ok: true,
-    value: { type: "seats", version: m.version, code: m.code, seats },
+  const value: SeatsMessage = {
+    type: "seats",
+    version: m.version,
+    code: m.code,
+    seats,
   };
+  if (m.venue !== undefined) {
+    const venue = parseVenue(m.venue);
+    if (!venue) return { ok: false, error: "bad venue" };
+    value.venue = venue;
+  }
+  return { ok: true, value };
+}
+
+function parsePoint(p: unknown): Point | null {
+  const q = p as { x?: unknown; y?: unknown } | null;
+  if (
+    typeof q !== "object" ||
+    q === null ||
+    typeof q.x !== "number" ||
+    typeof q.y !== "number" ||
+    !Number.isFinite(q.x) ||
+    !Number.isFinite(q.y)
+  ) {
+    return null;
+  }
+  return { x: q.x, y: q.y };
+}
+
+function parseVenue(v: unknown): Venue | null {
+  if (typeof v !== "object" || v === null) return null;
+  const shapes = (v as { shapes?: unknown }).shapes;
+  if (!Array.isArray(shapes)) return null;
+  const out: Venue["shapes"] = [];
+  for (const sh of shapes as unknown[]) {
+    const o = sh as { id?: unknown; points?: unknown } | null;
+    if (typeof o !== "object" || o === null) return null;
+    if (typeof o.id !== "string" || !Array.isArray(o.points)) return null;
+    const points: Point[] = [];
+    for (const pt of o.points as unknown[]) {
+      const p = parsePoint(pt);
+      if (!p) return null;
+      points.push(p);
+    }
+    out.push({ id: o.id, points });
+  }
+  return { shapes: out };
 }
 
 /** Encodes one frame from `#rrggbb` colours, one per client. */
