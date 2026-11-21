@@ -120,10 +120,11 @@ function traitsOf(track: MediaStreamTrack | undefined): CameraTraits {
 
 // -- Camera memory ---------------------------------------------------------
 
-const CAMERA_KEY = "lightshow-camera-v1";
+/** v2: v1 could remember a camera before it had shown a picture. */
+const CAMERA_KEY = "lightshow-camera-v2";
 
 type CameraMemory = {
-  /** The camera that worked last time. */
+  /** The camera that showed pictures last time. */
   chosen: string | null;
   /** Cameras a scan measured as ultra-wide. */
   avoid: string[];
@@ -208,9 +209,10 @@ function stopAll(stream: MediaStream): void {
 /**
  * Open the main back camera. Browsers can only be asked for "a back
  * camera", and Chrome on Android often opens an ultra-wide or telephoto
- * lens. So on Android, the first scan briefly opens each back camera, ranks
- * them by what they can do (`rankBackCameras`), and remembers the winner;
- * later scans open it straight away. Other browsers keep their choice.
+ * lens. On Android: keep the browser's camera if it has the flash and
+ * autofocus (the main camera), else switch to the lowest numbered back
+ * camera, or to the one that showed pictures last time (`confirmCamera`).
+ * Other browsers keep their choice.
  */
 export async function openRearCamera(
   /** Progress lines for the debug view. */
@@ -218,7 +220,7 @@ export async function openRearCamera(
 ): Promise<RearCamera> {
   // Camera names are only listed once permission is granted.
   status("opening the back camera");
-  let stream = await withTimeout(
+  const stream = await withTimeout(
     open({ ...VIDEO, facingMode: { ideal: "environment" } }),
     OPEN_TIMEOUT_MS * 2,
   );
@@ -242,115 +244,76 @@ export async function openRearCamera(
   } catch {
     // No list: keep the browser's choice.
   }
-  if (backs.length < 2) {
-    focusContinuously(stream);
-    return result;
-  }
+  focusContinuously(stream);
+  if (backs.length < 2) return result;
 
+  // Only what we know without opening other cameras: opening an extra lens
+  // can hang, and a hung camera blocks the rest.
   const memory = readCameraMemory();
-  const known = new Set(backs.map((b) => b.deviceId));
   const firstTraits = traitsOf(first);
-  const others = (best: string, traits = new Map<string, CameraTraits>()) =>
-    rankBackCameras(backs, traits, memory.avoid).filter((id) => id !== best);
-
-  // The browser's choice has the flash and autofocus: that's the main
-  // camera. Keep it; no need to try the others.
-  if (
+  // By name and number only: features are known for the open camera alone,
+  // and comparing it with cameras we haven't looked at isn't fair.
+  const ranked = rankBackCameras(backs, new Map(), memory.avoid);
+  const known = new Set(backs.map((b) => b.deviceId));
+  let target: string;
+  let how: string;
+  if (memory.chosen && known.has(memory.chosen)) {
+    target = memory.chosen;
+    how = "remembered";
+  } else if (
     firstTraits.torch &&
     firstTraits.autofocus &&
     !memory.avoid.includes(firstId)
   ) {
-    focusContinuously(stream);
-    writeCameraMemory({ chosen: firstId, avoid: memory.avoid });
+    target = firstId;
+    how = "browser's choice, has flash and autofocus";
+  } else {
+    target = ranked[0]!;
+    how = "lowest numbered back camera";
+  }
+  const others = ranked.filter((id) => id !== target);
+  if (target === firstId) return { ...result, others, how };
+
+  const n = backs.find((b) => b.deviceId === target)?.n;
+  status(`switching to camera ${n}`);
+  stopAll(stream);
+  await pause(RELEASE_MS);
+  try {
+    const next = await withTimeout(openCamera(target), OPEN_TIMEOUT_MS);
     return {
       ...result,
-      others: others(firstId),
-      how: "browser's choice, has flash and autofocus",
+      stream: next,
+      deviceId: target,
+      label: next.getVideoTracks()[0]?.label ?? "",
+      others,
+      how,
     };
+  } catch {
+    // That camera won't open: don't try it again, use the browser's choice.
+    avoidCamera(target);
+    status("going back to the browser's camera");
+    return reopenBrowserChoice(
+      { ...result, others: others.filter((id) => id !== firstId) },
+      `camera ${n} didn't open`,
+    );
   }
-
-  // A camera that worked before.
-  if (memory.chosen && known.has(memory.chosen)) {
-    if (memory.chosen === firstId) {
-      focusContinuously(stream);
-      return { ...result, others: others(firstId), how: "remembered" };
-    }
-    status("opening the remembered camera");
-    stopAll(stream);
-    try {
-      stream = await withTimeout(openCamera(memory.chosen), OPEN_TIMEOUT_MS);
-      return {
-        ...result,
-        stream,
-        deviceId: memory.chosen,
-        label: stream.getVideoTracks()[0]?.label ?? "",
-        others: others(memory.chosen),
-        how: "remembered",
-      };
-    } catch {
-      writeCameraMemory({ chosen: null, avoid: memory.avoid });
-      return reopenBrowserChoice(result, "remembered camera didn't open");
-    }
-  }
-
-  // Try each back camera once, one at a time (phones open one at a time),
-  // each with a time limit: some extra lenses never open.
-  const traits = new Map<string, CameraTraits>([[firstId, firstTraits]]);
-  stopAll(stream);
-  const deadline = performance.now() + PROBE_BUDGET_MS;
-  for (const back of backs) {
-    if (traits.has(back.deviceId)) continue;
-    if (performance.now() > deadline) break;
-    status(`trying camera ${back.n}`);
-    await pause(RELEASE_MS);
-    try {
-      const probe = await withTimeout(
-        // Same size as the real stream: a camera reopened soon after can
-        // come back in the size it was last opened at.
-        open({ ...VIDEO, deviceId: { exact: back.deviceId } }),
-        OPEN_TIMEOUT_MS,
-      );
-      traits.set(back.deviceId, traitsOf(probe.getVideoTracks()[0]));
-      stopAll(probe);
-    } catch {
-      // Didn't open in time, or refused: rank it on its name alone.
-    }
-  }
-  const ranked = rankBackCameras(backs, traits, memory.avoid);
-  const how = `chosen from ${backs.length}: ${ranked
-    .map((id) => {
-      const t = traits.get(id);
-      const n = backs.find((b) => b.deviceId === id)!.n;
-      return `${n}${t?.torch ? " flash" : ""}${t?.autofocus ? " af" : ""}`;
-    })
-    .join(", ")}`;
-  for (const id of ranked) {
-    status(`opening camera ${backs.find((b) => b.deviceId === id)!.n}`);
-    await pause(RELEASE_MS);
-    try {
-      stream = await withTimeout(openCamera(id), OPEN_TIMEOUT_MS);
-      writeCameraMemory({ chosen: id, avoid: memory.avoid });
-      return {
-        ...result,
-        stream,
-        deviceId: id,
-        label: stream.getVideoTracks()[0]?.label ?? "",
-        others: ranked.filter((other) => other !== id),
-        how,
-      };
-    } catch {
-      // Try the next best.
-    }
-  }
-  return reopenBrowserChoice(result, "no camera opened by id");
 }
 
-/** How long one camera may take to open before it's skipped. */
-const OPEN_TIMEOUT_MS = 2500;
-/** Time for trying cameras, in all, on the first scan. */
-const PROBE_BUDGET_MS = 6000;
+/** The camera showed pictures: open it straight away next time. */
+export function confirmCamera(deviceId: string): void {
+  if (!deviceId) return;
+  const memory = readCameraMemory();
+  if (memory.chosen === deviceId) return;
+  writeCameraMemory({
+    chosen: deviceId,
+    avoid: memory.avoid.filter((id) => id !== deviceId),
+  });
+}
+
+/** How long a camera may take to open before we give up on it. */
+const OPEN_TIMEOUT_MS = 3000;
 /** A breath between closing one camera and opening the next. */
-const RELEASE_MS = 150;
+const RELEASE_MS = 300;
 
 function pause(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -403,10 +366,13 @@ async function reopenBrowserChoice(
   };
 }
 
-/** Forget the chosen camera, e.g. when it showed no picture. */
-export function forgetCamera(): void {
-  const memory = readCameraMemory();
-  writeCameraMemory({ chosen: null, avoid: memory.avoid });
+/** This camera showed no picture: forget it, and don't pick it again. */
+export function forgetCamera(deviceId: string): void {
+  if (deviceId) avoidCamera(deviceId);
+  else {
+    const memory = readCameraMemory();
+    writeCameraMemory({ chosen: null, avoid: memory.avoid });
+  }
 }
 
 /** Copies video frames into a greyscale buffer at processing size. */

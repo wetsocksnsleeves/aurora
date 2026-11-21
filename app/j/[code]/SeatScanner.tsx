@@ -26,6 +26,7 @@ import type { Point, PositioningConfig } from "@/lib/types";
 import {
   FrameGrabber,
   avoidCamera,
+  confirmCamera,
   followMotion,
   forgetCamera,
   openCamera,
@@ -444,8 +445,13 @@ export function SeatScanner({
       const gen = generation;
       const seenBefore = frames;
       setTimeout(() => {
-        if (stopped || gen !== generation || frames > seenBefore) return;
-        forgetCamera();
+        if (stopped || gen !== generation) return;
+        if (frames > seenBefore) {
+          // Pictures arrived: this camera works, so open it next time.
+          if (camera) confirmCamera(camera.deviceId);
+          return;
+        }
+        forgetCamera(camera?.deviceId ?? "");
         setError("The camera didn't start. Go back and try again.");
       }, NO_PICTURE_MS);
       lens = rememberedLens(cameraLabel, video.videoWidth, video.videoHeight);
