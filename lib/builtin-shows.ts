@@ -1,5 +1,6 @@
 import { DEVICE_TEST_SHOW } from "./device-test-show";
 import { MIXTAPE_SHOW } from "./mixtape-show";
+import { TANDA_SHOW } from "./tanda-show";
 import { TEST_SHOW } from "./test-show";
 import type { Show } from "./types";
 
@@ -30,6 +31,11 @@ export const BUILTIN_SHOWS: readonly BuiltinShow[] = [
   {
     show: MIXTAPE_SHOW,
     note: "Poster boy, phonk and Reckless, 40 s each. Lights generated per song, with audio.",
+    clickTrack: false,
+  },
+  {
+    show: TANDA_SHOW,
+    note: "Blue TANDA as wide as the room, bouncing between the top and bottom edges. No audio.",
     clickTrack: false,
   },
 ];

@@ -464,8 +464,15 @@ function reduce(state: EditorState, action: EditorAction): EditorState {
 
     case "setPlaying":
       if (action.playing === state.playing) return state;
-      // Nothing to play without loaded audio.
-      if (action.playing && state.audioStatus !== "ready") return state;
+      // Wait for the music to load. A show without music plays on a clock
+      // (`usePlayback`).
+      if (
+        action.playing &&
+        state.audioStatus !== "ready" &&
+        state.audioStatus !== "none"
+      ) {
+        return state;
+      }
       return { ...state, playing: action.playing };
 
     case "setZoom": {
