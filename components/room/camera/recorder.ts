@@ -20,6 +20,8 @@ export type Take = {
   startedAt: Date;
   durationMs: number;
   files: Recording[];
+  /** Recordings that came out empty (the browser recorded nothing). */
+  empty: RecordingKind[];
 };
 
 const TYPES = [
@@ -91,8 +93,23 @@ function roomCompositor(room: RoomSource): {
   };
 }
 
-function record(stream: MediaStream, type: string) {
-  const recorder = new MediaRecorder(stream, {
+/**
+ * How long Stop waits for a recorder to say it's finished. Safari can stall
+ * (e.g. on an audio track that never carries sound) and never say so; then
+ * we keep what it recorded so far.
+ */
+export const STOP_TIMEOUT_MS = 4000;
+
+/**
+ * Record `stream`. `finish` stops it and resolves the file, after the
+ * recorder's "stopped" event or `STOP_TIMEOUT_MS`, whichever comes first.
+ */
+export function record(
+  stream: MediaStream,
+  type: string,
+  Recorder: typeof MediaRecorder = MediaRecorder,
+): { finish: () => Promise<Blob> } {
+  const recorder = new Recorder(stream, {
     mimeType: type || undefined,
     videoBitsPerSecond: 8_000_000,
   });
@@ -100,12 +117,34 @@ function record(stream: MediaStream, type: string) {
   recorder.ondataavailable = (e) => {
     if (e.data.size > 0) chunks.push(e.data);
   };
+  let resolveDone: (blob: Blob) => void = () => {};
   const done = new Promise<Blob>((resolve) => {
-    recorder.onstop = () =>
-      resolve(new Blob(chunks, { type: recorder.mimeType || type }));
+    resolveDone = resolve;
   });
+  let finished = false;
+  const settle = () => {
+    if (finished) return;
+    finished = true;
+    resolveDone(new Blob(chunks, { type: recorder.mimeType || type }));
+  };
+  recorder.onstop = settle;
+  recorder.onerror = settle;
   recorder.start(1000);
-  return { recorder, done };
+  return {
+    finish: () => {
+      if (recorder.state !== "inactive") {
+        try {
+          recorder.stop();
+        } catch {
+          settle();
+        }
+      } else {
+        settle();
+      }
+      setTimeout(settle, STOP_TIMEOUT_MS);
+      return done;
+    },
+  };
 }
 
 let takes = 0;
@@ -138,27 +177,26 @@ export function startRecording(opts: {
 
   return {
     stop: async () => {
-      for (const { run } of runs) {
-        if (run.recorder.state !== "inactive") run.recorder.stop();
-      }
-      const files = await Promise.all(
-        runs.map(async ({ kind, run }) => {
-          const blob = await run.done;
-          return {
-            kind,
-            blob,
-            url: URL.createObjectURL(blob),
-            fileName: `lightshow-${kind}-${stamp(startedAt)}.${ext}`,
-          };
-        }),
+      const blobs = await Promise.all(
+        runs.map(async ({ kind, run }) => ({ kind, blob: await run.finish() })),
       );
       compositor.stop();
       compositor.stream.getTracks().forEach((t) => t.stop());
+      // A recording with nothing in it is reported, not offered.
+      const files = blobs
+        .filter(({ blob }) => blob.size > 0)
+        .map(({ kind, blob }) => ({
+          kind,
+          blob,
+          url: URL.createObjectURL(blob),
+          fileName: `lightshow-${kind}-${stamp(startedAt)}.${ext}`,
+        }));
       return {
         id: ++takes,
         startedAt,
         durationMs: performance.now() - started,
         files,
+        empty: blobs.filter(({ blob }) => blob.size === 0).map((b) => b.kind),
       };
     },
   };

@@ -9,7 +9,7 @@ export type Recorder = {
   since: number | null;
   saving: boolean;
   takes: Take[];
-  start: () => void;
+  start: () => Promise<void>;
   stop: () => Promise<Take | null>;
 };
 
@@ -37,21 +37,29 @@ export function useRecorder(opts: {
   const [saving, setSaving] = useState(false);
   const [takes, setTakes] = useState<Take[]>([]);
   const run = useRef<{ stop: () => Promise<Take> } | null>(null);
+  const starting = useRef(false);
   const latest = useRef(opts);
   useEffect(() => {
     latest.current = opts;
   });
 
-  const start = useCallback(() => {
-    if (run.current) return;
+  const start = useCallback(async () => {
+    if (run.current || starting.current) return;
+    starting.current = true;
     const { room, audio, camera } = latest.current;
+    // Record is a click: let the show's sound run. Its track only goes in
+    // once it does: Safari waits forever on an audio track with no sound.
+    await audio.unlock();
     let music: MediaStream | null = null;
-    try {
-      music = audio.recordingStream();
-    } catch {
-      music = null;
+    if (audio.running) {
+      try {
+        music = audio.recordingStream();
+      } catch {
+        music = null;
+      }
     }
     run.current = startRecording({ room, camera, music });
+    starting.current = false;
     setSince(performance.now());
   }, []);
 
@@ -62,7 +70,7 @@ export function useRecorder(opts: {
     setSaving(true);
     try {
       const take = await current.stop();
-      setTakes((t) => [take, ...t]);
+      if (take.files.length) setTakes((t) => [take, ...t]);
       for (const file of take.files) download(file.url, file.fileName);
       return take;
     } finally {

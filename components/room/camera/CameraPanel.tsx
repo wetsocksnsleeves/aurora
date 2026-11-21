@@ -73,14 +73,21 @@ export function CameraPanel({
   }, [listOpen]);
 
   const record = () => {
-    recorder.start();
+    void recorder.start();
     toast("Recording the camera and the room");
   };
 
   const stop = async () => {
     const take = await recorder.stop();
-    if (take) {
-      setListOpen(true);
+    if (!take) return;
+    if (take.files.length) setListOpen(true);
+    if (take.empty.length && !take.files.length) {
+      toast("Nothing was recorded. Try again, or try Chrome");
+    } else if (take.empty.length) {
+      toast(
+        `Saved ${clock(take.durationMs)}, but the ${take.empty.join(" and ")} recording came out empty`,
+      );
+    } else {
       toast(`Saved ${clock(take.durationMs)}: both files are downloading`);
     }
   };
