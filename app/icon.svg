@@ -1,11 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <rect x="0" y="0" width="18" height="18" rx="5" fill="#ff2e63"/>
-  <rect x="23" y="0" width="18" height="18" rx="5" fill="#ff5a4e"/>
-  <rect x="46" y="0" width="18" height="18" rx="5" fill="#ffb03f"/>
-  <rect x="0" y="23" width="18" height="18" rx="5" fill="#ff5a4e"/>
+  <rect x="23" y="0" width="18" height="18" rx="5" fill="#ffb347"/>
+  <rect x="46" y="0" width="18" height="18" rx="5" fill="#ffe66d"/>
+  <rect x="0" y="23" width="18" height="18" rx="5" fill="#ffb347"/>
   <rect x="23" y="23" width="18" height="18" rx="5" fill="#ffe66d"/>
-  <rect x="46" y="23" width="18" height="18" rx="5" fill="#3fc5ff"/>
-  <rect x="0" y="46" width="18" height="18" rx="5" fill="#ffb03f"/>
-  <rect x="23" y="46" width="18" height="18" rx="5" fill="#3fc5ff"/>
-  <rect x="46" y="46" width="18" height="18" rx="5" fill="#1f8fff"/>
+  <rect x="46" y="23" width="18" height="18" rx="5" fill="#6dffb0"/>
+  <rect x="0" y="46" width="18" height="18" rx="5" fill="#ffe66d"/>
+  <rect x="23" y="46" width="18" height="18" rx="5" fill="#6dffb0"/>
+  <rect x="46" y="46" width="18" height="18" rx="5" fill="#1fb6ff"/>
 </svg>
