@@ -5,7 +5,13 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import type { ErrorReason, ParticipantSummary } from "@/lib/protocol";
-import { crowdBox, boxChanged, fitToCrowd, type CrowdBox } from "@/lib/crowd";
+import {
+  crowdBox,
+  boxChanged,
+  fitToCrowd,
+  minimumRoom,
+  type CrowdBox,
+} from "@/lib/crowd";
 import { DEFAULT_POSITIONING } from "@/lib/positioning/seat";
 import type {
   ParticipantState,
@@ -91,8 +97,9 @@ export type Session = {
   positioning: PositioningConfig;
   /**
    * Where the crowd is: shows are fitted to it, so seats are mapped through
-   * this box before compiling (`lib/crowd.ts`). Null until someone is seated.
-   * Not refitted while a show plays.
+   * this box before compiling (`lib/crowd.ts`). Null (seats used as they
+   * are) until the first refit, which with nobody ready gives the minimum
+   * room. Not refitted while a show plays.
    */
   crowd: CrowdBox | null;
   participants: Map<string, Participant>;
@@ -443,7 +450,7 @@ export class SessionStore {
     for (const p of session.participants.values()) {
       if (p.connected && p.readyTapped && p.seat) seats.push(p.seat);
     }
-    const next = crowdBox(seats);
+    const next = crowdBox(seats, minimumRoom(session.positioning));
     if (!boxChanged(session.crowd, next)) return [];
     session.crowd = next;
     return this.staleSchedules(session);

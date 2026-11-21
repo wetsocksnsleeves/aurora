@@ -881,11 +881,12 @@ describe("rooms (SPEC 2.5)", () => {
     const left = await standbyPhone(url, code, 0.45);
     const right = await standbyPhone(url, code, 0.55);
     const session = store.getSession(code)!;
-    // Once refitted, the two phones span the show's width (with a margin).
+    // Once refitted, the two phones, either side of the screen, span the
+    // show's width (with a margin).
     await vi.waitFor(() => {
       const xs = store.summaries(session).map((p) => p.x!);
-      expect(Math.min(...xs)).toBeCloseTo(0.054, 2);
-      expect(Math.max(...xs)).toBeCloseTo(0.946, 2);
+      expect(Math.min(...xs)).toBeCloseTo(0.028, 2);
+      expect(Math.max(...xs)).toBeCloseTo(0.972, 2);
     });
     // The left phone is recompiled for its fitted seat.
     const fitted = store.showSeat(
@@ -899,6 +900,22 @@ describe("rooms (SPEC 2.5)", () => {
     );
     expect(host).toBeDefined();
     expect(right.id).not.toBe(left.id);
+  });
+
+  it("shows a lone phone beside the screen where it is, before Ready", async () => {
+    const { url, store } = await listen({ fitCrowd: true, refitDelayMs: 20 });
+    const { code } = await hostSession(url);
+    const phone = await connect(url);
+    phone.send({ type: "join", code });
+    await phone.next("welcome");
+    // 2 m left of the screen, 3 m back, in the default 200 m positioning box.
+    phone.send({ type: "seat", x: 0.5 - 2 / 200, y: 3 / 200 });
+    const session = store.getSession(code)!;
+    await vi.waitFor(() => {
+      const [p] = store.summaries(session);
+      expect(p!.x).toBeCloseTo(0.25, 6);
+      expect(p!.y).toBeCloseTo(0.5, 6);
+    });
   });
 
   it("brings a stored room back after a restart, with its code and host token", async () => {

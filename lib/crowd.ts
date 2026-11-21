@@ -2,10 +2,12 @@ import type { Point } from "./types";
 
 /**
  * Fitting the show to the crowd. Seats come from the camera in room
- * coordinates (`lib/positioning/seat.ts`), which can sit anywhere in a large
- * box. Shows are drawn on a 0..1 room, so before compiling, each seat is
- * mapped through the crowd's own bounding box: "the left half" of a show is
- * the left half of wherever people actually are.
+ * coordinates (`lib/positioning/seat.ts`): the screen is at the top centre
+ * (x 0.5, y 0) of a large box. Shows are drawn on a 0..1 room with the
+ * screen in the same place, so before compiling each seat is mapped through
+ * a box sized to the crowd but anchored to the screen: centred on it across,
+ * and starting at it in depth. A phone left of the screen stays left of the
+ * screen, and the show still spans the people actually there.
  */
 
 /** The area the crowd covers, in the same coordinates as the seats. */
@@ -16,38 +18,58 @@ export type CrowdBox = {
   maxY: number;
 };
 
-/** Margin added around the crowd, as a fraction of its size. */
+/** Margin added beyond the outermost seats, as a fraction of the box. */
 const PADDING = 0.06;
-/** Smallest box side, so one phone (or a tight cluster) doesn't blow up. */
-const MIN_SIDE = 0.01;
+/** The screen's centre in seat coordinates. */
+const SCREEN_X = 0.5;
+
+/**
+ * Smallest box, in seat units, so one phone or a small group isn't stretched
+ * over the whole show. `halfWidth` is either side of the screen's centre.
+ */
+export type MinimumRoom = { halfWidth: number; depth: number };
 
 /** With this many seats or more, the outermost 2% each side are ignored. */
 const TRIM_FROM = 20;
 const TRIM = 0.02;
 
 /**
- * The box around `seats`, padded; null with no seats. In a large crowd the
- * most extreme seats are left out, so one stray (or spoofed) position can't
- * stretch everyone's show.
+ * The room the crowd fills, anchored to the screen; the minimum room with no
+ * seats. In a large crowd the most extreme seats are left out, so one stray
+ * (or spoofed) position can't stretch everyone's show.
  */
-export function crowdBox(seats: readonly Point[]): CrowdBox | null {
-  if (!seats.length) return null;
+export function crowdBox(seats: readonly Point[], min: MinimumRoom): CrowdBox {
+  if (!seats.length) {
+    return {
+      minX: SCREEN_X - min.halfWidth,
+      minY: 0,
+      maxX: SCREEN_X + min.halfWidth,
+      maxY: min.depth,
+    };
+  }
   const xs = seats.map((s) => s.x).sort((a, b) => a - b);
   const ys = seats.map((s) => s.y).sort((a, b) => a - b);
   const cut = seats.length >= TRIM_FROM ? Math.floor(seats.length * TRIM) : 0;
-  const minX = xs[cut]!;
-  const maxX = xs[xs.length - 1 - cut]!;
-  const minY = ys[cut]!;
-  const maxY = ys[ys.length - 1 - cut]!;
-  const grow = (lo: number, hi: number): [number, number] => {
-    const side = Math.max(hi - lo, MIN_SIDE);
-    const mid = (lo + hi) / 2;
-    const half = (side * (1 + 2 * PADDING)) / 2;
-    return [mid - half, mid + half];
+  const reach = Math.max(
+    SCREEN_X - xs[cut]!,
+    xs[xs.length - 1 - cut]! - SCREEN_X,
+  );
+  const halfWidth = Math.max(reach * (1 + PADDING), min.halfWidth);
+  const depth = Math.max(ys[ys.length - 1 - cut]! * (1 + PADDING), min.depth);
+  return {
+    minX: SCREEN_X - halfWidth,
+    minY: 0,
+    maxX: SCREEN_X + halfWidth,
+    maxY: depth,
   };
-  const [x0, x1] = grow(minX, maxX);
-  const [y0, y1] = grow(minY, maxY);
-  return { minX: x0, minY: y0, maxX: x1, maxY: y1 };
+}
+
+/** The minimum room for a positioning config: 8 m across, 6 m deep. */
+export function minimumRoom(config: {
+  venueWidthM: number;
+  venueDepthM: number;
+}): MinimumRoom {
+  return { halfWidth: 4 / config.venueWidthM, depth: 6 / config.venueDepthM };
 }
 
 /** A seat in show coordinates (0..1 across the crowd). Unchanged with no box. */

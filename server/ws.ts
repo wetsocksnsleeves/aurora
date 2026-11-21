@@ -499,6 +499,8 @@ export class WsRouter {
     const session = this.requireHost(conn);
     this.store.setPositioning(session, msg.config);
     this.saveRoom(session);
+    // The minimum room is in metres, so it moves with the sizes.
+    this.scheduleRefit(session);
     const reply = { type: "positioning", config: session.positioning } as const;
     this.broadcastToParticipants(session, reply);
     this.sendToHosts(session, reply);
@@ -614,6 +616,7 @@ export class WsRouter {
         (code) => this.options.rooms?.load(code) != null,
       );
       created = true;
+      this.startCrowd(session);
       this.saveRoom(session);
     } else {
       session = await this.sessionFor(msg.code);
@@ -704,14 +707,23 @@ export class WsRouter {
       (await this.resolveShow(TEST_SHOW_ID));
     if (!show) return this.store.requireSession(code);
     // Another request may have restored it while the show resolved.
-    return (
-      this.store.getSession(code) ??
-      this.store.createSession(show, {
-        code: room.code,
-        hostToken: room.hostToken,
-        positioning: room.positioning,
-      })
-    );
+    const again = this.store.getSession(code);
+    if (again) return again;
+    const session = this.store.createSession(show, {
+      code: room.code,
+      hostToken: room.hostToken,
+      positioning: room.positioning,
+    });
+    this.startCrowd(session);
+    return session;
+  }
+
+  /**
+   * With crowd fitting on, a new room starts as the minimum room around the
+   * screen, so the first phones show where they are before anyone is ready.
+   */
+  private startCrowd(session: Session): void {
+    if (this.options.fitCrowd) this.store.refitCrowd(session);
   }
 
   private saveRoom(session: Session): void {
