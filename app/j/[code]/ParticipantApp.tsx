@@ -11,7 +11,14 @@ import {
 import { VenueView } from "@/components/venue/VenueView";
 import type { Point } from "@/lib/types";
 import { cameraSupported, requestMotionPermission } from "./camera-seat";
-import { enterFullscreen, requestWakeLock, wakeLockSupported } from "./device";
+import {
+  KeepAwakeVideo,
+  enterFullscreen,
+  fullscreenSupported,
+  isFullscreen,
+  requestWakeLock,
+  wakeLockSupported,
+} from "./device";
 import {
   ParticipantClient,
   browserDeps,
@@ -38,7 +45,8 @@ export function ParticipantApp({ code }: { code: string }) {
   // for in the tap that opened the scanner, and what it found.
   const [scan, setScan] = useState<Promise<boolean> | null>(null);
   const [cameraFound, setCameraFound] = useState<string | null>(null);
-  const wakeLock = useWakeLock(snapshot.readyTapped);
+  const keepAwake = useKeepAwake(snapshot.readyTapped);
+  const fullscreenLost = useFullscreenLost();
 
   useEffect(() => {
     client.start();
@@ -52,6 +60,20 @@ export function ParticipantApp({ code }: { code: string }) {
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [client]);
+
+  // After Ready, any tap restores fullscreen and the keep-awake if the
+  // browser dropped them (back gesture, tab switch, notification). Both
+  // need a user gesture, so this cannot happen without a tap (SPEC 4.9).
+  const rearm = keepAwake.request;
+  useEffect(() => {
+    if (!snapshot.readyTapped) return;
+    const onTap = () => {
+      enterFullscreen();
+      rearm();
+    };
+    document.addEventListener("pointerup", onTap, true);
+    return () => document.removeEventListener("pointerup", onTap, true);
+  }, [snapshot.readyTapped, rearm]);
 
   const onCameraFound = useCallback(
     (seat: Point, summary: string) => {
@@ -67,7 +89,7 @@ export function ParticipantApp({ code }: { code: string }) {
     // Fullscreen and wake lock need this tap as their user gesture, so both
     // start here, synchronously, before anything else (SPEC 2.3, 4.9).
     enterFullscreen();
-    wakeLock.request();
+    keepAwake.request();
     client.ready();
   };
 
@@ -146,7 +168,10 @@ export function ParticipantApp({ code }: { code: string }) {
             Turn your screen brightness all the way up and keep this page open.
             The show starts on its own.
           </p>
-          {wakeLock.held ? null : (
+          {fullscreenLost ? (
+            <p className={styles.hint}>Tap the screen to go fullscreen.</p>
+          ) : null}
+          {keepAwake.held ? null : (
             <p className={styles.hint}>
               Keep your screen on: tap it now and then so it doesn’t lock.
             </p>
@@ -278,34 +303,61 @@ function ReconnectNote({ snapshot }: { snapshot: ParticipantSnapshot }) {
 }
 
 /**
- * Hold a screen wake lock once Ready was tapped. The browser drops it when
- * the tab is hidden, so take it again on return to visible (SPEC 4.9).
+ * Keep the screen on once Ready was tapped (SPEC 4.9). Uses the Screen Wake
+ * Lock API and falls back to a looping silent video where the API is missing
+ * or refused, e.g. over plain HTTP. The browser drops both when the tab is
+ * hidden, so take them again on return to visible and on every tap.
+ * `held` is false only once both have failed.
  */
-function useWakeLock(active: boolean): { held: boolean; request: () => void } {
+function useKeepAwake(active: boolean): { held: boolean; request: () => void } {
   const sentinel = useRef<WakeLockSentinel | null>(null);
   const pending = useRef(false);
-  const [held, setHeld] = useState(true);
+  const [status, setStatus] = useState<"trying" | "lock" | "video" | "none">(
+    "trying",
+  );
+  const [video] = useState(
+    () =>
+      new KeepAwakeVideo((playing) => {
+        if (playing) setStatus("video");
+        // Pausing it after the lock was taken is not a failure.
+        else setStatus((s) => (s === "lock" ? s : "none"));
+      }),
+  );
 
   const request = useCallback(() => {
     if (pending.current || (sentinel.current && !sentinel.current.released)) {
       return;
     }
-    if (!wakeLockSupported()) return;
+    if (!wakeLockSupported()) {
+      video.play();
+      return;
+    }
     pending.current = true;
     void requestWakeLock().then((lock) => {
       pending.current = false;
       sentinel.current = lock;
-      setHeld(lock !== null);
-      lock?.addEventListener("release", () => {
-        if (sentinel.current === lock) sentinel.current = null;
+      if (!lock) {
+        video.play();
+        return;
+      }
+      setStatus("lock");
+      if (video.playing) video.dispose();
+      lock.addEventListener("release", () => {
+        if (sentinel.current !== lock) return;
+        sentinel.current = null;
+        // Released while still visible (e.g. battery saver): cover with the
+        // video until the next tap retries the lock.
+        if (document.visibilityState !== "visible") return;
+        setStatus("trying");
+        video.play();
       });
     });
-  }, []);
+  }, [video]);
 
   useEffect(() => {
     if (!active) return;
     // After a reload in standby there is no tap; try anyway (Chrome allows
-    // it without a gesture). If refused, the page shows a hint.
+    // the lock, and muted video may autoplay). The next tap retries.
     request();
     const onVisible = () => {
       if (document.visibilityState === "visible") request();
@@ -318,9 +370,24 @@ function useWakeLock(active: boolean): { held: boolean; request: () => void } {
     () => () => {
       void sentinel.current?.release().catch(() => {});
       sentinel.current = null;
+      video.dispose();
     },
-    [],
+    [video],
   );
 
-  return { held: held && wakeLockSupported(), request };
+  return { held: status !== "none", request };
+}
+
+function subscribeFullscreen(onChange: () => void): () => void {
+  document.addEventListener("fullscreenchange", onChange);
+  return () => document.removeEventListener("fullscreenchange", onChange);
+}
+
+/** True when this browser has fullscreen but the page is not in it. */
+function useFullscreenLost(): boolean {
+  return useSyncExternalStore(
+    subscribeFullscreen,
+    () => fullscreenSupported() && !isFullscreen(),
+    () => false,
+  );
 }
