@@ -2,8 +2,9 @@
 
 import { Inter, Space_Grotesk } from "next/font/google";
 import QRCode from "qrcode";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { EXTENT, QR_LABEL, W, drawPattern } from "@/lib/positioning/pattern";
+import { PITCH_DECK_PATH, parseDeckMessage } from "./pitch-deck";
 import styles from "./screen.module.css";
 
 const wordmarkFont = Space_Grotesk({ subsets: ["latin"], weight: "700" });
@@ -13,6 +14,10 @@ const labelFont = Inter({ subsets: ["latin"], weight: "400" });
  * Draws the positioning target to fill the screen below the wordmark. The
  * target must stay pure white on pure black: that is what phones measure.
  * F toggles fullscreen.
+ *
+ * The button in the top band opens the pitch deck in a layer over this page,
+ * so fullscreen survives the switch. At its live demo slide the deck hides
+ * itself and the QR code shows; the button then brings it back where it was.
  */
 export function ScreenApp({
   code,
@@ -22,6 +27,10 @@ export function ScreenApp({
   joinUrl: string | null;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const deckRef = useRef<HTMLIFrameElement>(null);
+  // The deck loads on first open and stays loaded, so it keeps its place.
+  const [deckLoaded, setDeckLoaded] = useState(false);
+  const [deckOpen, setDeckOpen] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -78,26 +87,70 @@ export function ScreenApp({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "f" && e.key !== "F") return;
-      if (document.fullscreenElement) void document.exitFullscreen();
-      else void document.documentElement.requestFullscreen?.();
+      if (e.key === "f" || e.key === "F") toggleFullscreen();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return;
+      if (e.source !== deckRef.current?.contentWindow) return;
+      const action = parseDeckMessage(e.data);
+      if (action === "fullscreen") toggleFullscreen();
+      if (action === "demo") {
+        setDeckOpen(false);
+        // Take keyboard focus back from the hidden deck, so F works here.
+        window.focus();
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+
+  // The deck takes the arrow keys while it is showing.
+  useEffect(() => {
+    if (deckOpen) deckRef.current?.contentWindow?.focus();
+  }, [deckOpen]);
 
   return (
     <main className={styles.page}>
       <div className={`${styles.mark} ${wordmarkFont.className}`}>
         lightshow
       </div>
+      <button
+        type="button"
+        className={`${styles.deck} ${labelFont.className}`}
+        onClick={() => {
+          setDeckLoaded(true);
+          setDeckOpen(true);
+        }}
+      >
+        {deckLoaded ? "Back to deck" : "Pitch deck"}
+      </button>
       <canvas
         ref={canvasRef}
         className={styles.target}
         aria-label={`Positioning target and QR code for session ${code}`}
       />
+      {deckLoaded ? (
+        <iframe
+          ref={deckRef}
+          src={PITCH_DECK_PATH}
+          title="Pitch deck"
+          className={styles.deckFrame}
+          hidden={!deckOpen}
+          onLoad={(e) => e.currentTarget.contentWindow?.focus()}
+        />
+      ) : null}
     </main>
   );
+}
+
+function toggleFullscreen() {
+  if (document.fullscreenElement) void document.exitFullscreen();
+  else void document.documentElement.requestFullscreen?.().catch(() => {});
 }
 
 /** The QR code's modules as a boolean matrix, for `drawPattern`. */
