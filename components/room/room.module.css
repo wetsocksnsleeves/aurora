@@ -660,9 +660,6 @@
   inset: 0;
   border-radius: 24px;
   overflow: hidden;
-  /* An outline paints over the canvas, where an inset shadow can't. */
-  outline: 1px solid rgb(255 255 255 / 0.09);
-  outline-offset: -1px;
   box-shadow: 0 20px 50px rgb(0 0 0 / 0.45);
 }
 
