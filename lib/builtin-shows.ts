@@ -30,7 +30,7 @@ export const BUILTIN_SHOWS: readonly BuiltinShow[] = [
   },
   {
     show: MIXTAPE_SHOW,
-    note: "Poster boy, phonk and Reckless, 40 s each. Lights generated per song, with audio.",
+    note: "Poster boy and phonk for 30 s each, then 25 s of Reckless. Lights generated per song, with audio.",
     clickTrack: false,
   },
   {
