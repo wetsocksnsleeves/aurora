@@ -15,6 +15,7 @@ import {
   attachWebSocketServer,
   startLeadMsFromEnv,
   type AttachOptions,
+  type RoomRecord,
   type UpgradeHandler,
 } from "./ws";
 
@@ -174,6 +175,8 @@ describe("message routing", () => {
     expect(await host.next("participants")).toEqual({
       type: "participants",
       list: [],
+      // Without crowd fitting the room is the whole positioning box.
+      room: { widthM: 200, depthM: 200 },
     });
     expect(store.getSession(session.code)).toBeDefined();
   });
@@ -807,5 +810,201 @@ describe("positioning", () => {
     });
     expect((await phone.next("error")).reason).toBe("not-host");
     expect(store.getSession(code)!.positioning).toEqual(DEFAULT_POSITIONING);
+  });
+});
+
+describe("rooms (SPEC 2.5)", () => {
+  /** A second show: the whole room white for its first second. */
+  const FLASH_SHOW: Show = {
+    ...TEST_SHOW,
+    id: "flash",
+    clips: [
+      {
+        id: "all",
+        layer: 0,
+        startMs: 0,
+        endMs: 1_000,
+        color: "#ffffff",
+        fadeInMs: 0,
+        fadeOutMs: 0,
+        shape: { kind: "fill" },
+      },
+    ],
+  };
+  const shows: Record<string, Show> = { test: TEST_SHOW, flash: FLASH_SHOW };
+  const resolveShow = (id: string) => shows[id];
+
+  it("loading a show keeps phones connected and sends them new schedules", async () => {
+    const { url, store } = await listen({ resolveShow });
+    const { host, code } = await hostSession(url);
+    const { phone, id } = await standbyPhone(url, code);
+    const session = store.getSession(code)!;
+    await vi.waitFor(() =>
+      expect(store.getParticipant(session, id).state).toBe("standby"),
+    );
+
+    host.send({ type: "load", showId: "flash" });
+    expect((await host.next("session")).showId).toBe("flash");
+    const schedule = await phone.next("schedule");
+    expect(schedule.events).toEqual(
+      compileSchedule(FLASH_SHOW, { x: 0.5, y: 0.5 }).events,
+    );
+    // Never left standby, and the socket stayed open.
+    expect(store.getParticipant(session, id).state).toBe("standby");
+    expect(phone.all("welcome")).toHaveLength(1);
+  });
+
+  it("refuses loading while a show plays, an unknown show, and from a phone", async () => {
+    const { url, store } = await listen({ resolveShow });
+    const { host, code } = await hostSession(url);
+    const { phone } = await standbyPhone(url, code);
+    await vi.waitFor(() =>
+      expect(store.countByState(store.getSession(code)!).standby).toBe(1),
+    );
+
+    host.send({ type: "load", showId: "nope" });
+    expect((await host.next("error")).reason).toBe("unknown-show");
+    phone.send({ type: "load", showId: "flash" });
+    expect((await phone.next("error")).reason).toBe("not-host");
+
+    host.send({ type: "start" });
+    await host.next("start");
+    host.send({ type: "load", showId: "flash" });
+    expect((await host.next("error")).reason).toBe("show-running");
+  });
+
+  it("fits the show to the crowd", async () => {
+    const { url, store } = await listen({
+      fitCrowd: true,
+      refitDelayMs: 20,
+      refitIntervalMs: 0,
+    });
+    const { host, code } = await hostSession(url);
+    const left = await standbyPhone(url, code, 0.45);
+    const right = await standbyPhone(url, code, 0.55);
+    const session = store.getSession(code)!;
+    // Once refitted, the two phones, either side of the screen, span the
+    // show's width (with a margin).
+    await vi.waitFor(() => {
+      const xs = store.summaries(session).map((p) => p.x!);
+      expect(Math.min(...xs)).toBeCloseTo(0.028, 2);
+      expect(Math.max(...xs)).toBeCloseTo(0.972, 2);
+    });
+    // The left phone is recompiled for its fitted seat.
+    const fitted = store.showSeat(
+      session,
+      store.getParticipant(session, left.id),
+    )!;
+    await vi.waitFor(() =>
+      expect(left.phone.all("schedule").at(-1)!.events).toEqual(
+        compileSchedule(TEST_SHOW, fitted).events,
+      ),
+    );
+    expect(host).toBeDefined();
+    expect(right.id).not.toBe(left.id);
+  });
+
+  it("shows a lone phone beside the screen where it is, before Ready", async () => {
+    const { url, store } = await listen({ fitCrowd: true, refitDelayMs: 20 });
+    const { code } = await hostSession(url);
+    const phone = await connect(url);
+    phone.send({ type: "join", code });
+    await phone.next("welcome");
+    // 2 m left of the screen, 3 m back, in the default 200 m positioning box.
+    phone.send({ type: "seat", x: 0.5 - 2 / 200, y: 3 / 200 });
+    const session = store.getSession(code)!;
+    await vi.waitFor(() => {
+      const [p] = store.summaries(session);
+      expect(p!.x).toBeCloseTo(0.25, 6);
+      expect(p!.y).toBeCloseTo(0.5, 6);
+    });
+  });
+
+  it("lets the host drag a phone somewhere else until it rescans", async () => {
+    const { url, store } = await listen({ fitCrowd: true, refitDelayMs: 20 });
+    const { host, code } = await hostSession(url);
+    const { phone, id } = await standbyPhone(url, code, 0.45);
+    const session = store.getSession(code)!;
+    host.send({ type: "place", participantId: id, x: 0.9, y: 0.2 });
+    await vi.waitFor(() =>
+      expect(store.summaries(session)[0]).toMatchObject({ x: 0.9, y: 0.2 }),
+    );
+    // Recompiled for the new spot.
+    await vi.waitFor(() =>
+      expect(phone.all("schedule").at(-1)!.events).toEqual(
+        compileSchedule(TEST_SHOW, { x: 0.9, y: 0.2 }).events,
+      ),
+    );
+    // Phones can't move each other.
+    phone.send({ type: "place", participantId: id, x: 0.1, y: 0.1 });
+    expect((await phone.next("error")).reason).toBe("not-host");
+    // Finding its seat again undoes the drag.
+    phone.send({ type: "seat", x: 0.45, y: 0.5 });
+    await vi.waitFor(() =>
+      expect(store.summaries(session)[0]!.x).not.toBe(0.9),
+    );
+  });
+
+  it("lights up the phone the host is moving, and only that one", async () => {
+    const { url } = await listen({ fitCrowd: true, refitDelayMs: 20 });
+    const { host, code } = await hostSession(url);
+    const a = await standbyPhone(url, code, 0.45);
+    const b = await standbyPhone(url, code, 0.55);
+    host.send({ type: "highlight", participantId: a.id });
+    expect(await a.phone.next("highlight")).toEqual({
+      type: "highlight",
+      on: true,
+    });
+    // Moving to the other phone turns the first off.
+    host.send({ type: "highlight", participantId: b.id });
+    expect(await a.phone.next("highlight")).toMatchObject({ on: false });
+    expect(await b.phone.next("highlight")).toMatchObject({ on: true });
+    // Phones can't light each other up.
+    a.phone.send({ type: "highlight", participantId: b.id });
+    expect((await a.phone.next("error")).reason).toBe("not-host");
+    // The host leaving mid-drag turns it off.
+    await host.close();
+    expect(await b.phone.next("highlight")).toMatchObject({ on: false });
+  });
+
+  it("tells the host how big the room is", async () => {
+    const { url } = await listen({ fitCrowd: true, refitDelayMs: 20 });
+    const host = await connect(url);
+    host.send({ type: "host", showId: "test" });
+    const { code } = await host.next("session");
+    let message = await host.next("participants");
+    // A new room is the minimum room: 8 m across, 6 m deep.
+    expect(message.room!.widthM).toBeCloseTo(8, 6);
+    expect(message.room!.depthM).toBeCloseTo(6, 6);
+    await standbyPhone(url, code, 0.5 - 10 / 200);
+    // Once the crowd is fitted, 10 m either side plus the margin.
+    do message = await host.next("participants");
+    while (message.room!.widthM < 20);
+    expect(message.room!.widthM).toBeCloseTo(21.2, 1);
+  });
+
+  it("brings a stored room back after a restart, with its code and host token", async () => {
+    const saved = new Map<string, RoomRecord>();
+    const rooms = {
+      load: (c: string) => saved.get(c) ?? null,
+      save: (r: RoomRecord) => void saved.set(r.code, r),
+    };
+    const { url, store } = await listen({ resolveShow, rooms });
+    const { host, code, hostToken } = await hostSession(url);
+    host.send({ type: "load", showId: "flash" });
+    await host.next("session");
+    expect(saved.get(code)).toMatchObject({ code, hostToken, showId: "flash" });
+
+    // A restart loses every in-memory session.
+    store.deleteSession(code);
+
+    const phone = await connect(url);
+    phone.send({ type: "join", code });
+    await phone.next("welcome");
+    const host2 = await connect(url);
+    host2.send({ type: "host", code, hostToken });
+    const session = await host2.next("session");
+    expect(session.code).toBe(code);
+    expect(session.showId).toBe("flash");
   });
 });

@@ -99,6 +99,17 @@ export function ParticipantApp({ code }: { code: string }) {
     screen = "seat";
   }
 
+  // The host is moving this phone on the laptop: a bright screen they can
+  // spot in the crowd. Never over a running show.
+  if (snapshot.highlighted && screen !== "playing") {
+    return (
+      <Shell screen="moving" tone="moving">
+        <Label>The host is moving you</Label>
+        <p className={styles.movingNote}>Hold your phone up</p>
+      </Shell>
+    );
+  }
+
   switch (screen) {
     case "connecting":
       return (

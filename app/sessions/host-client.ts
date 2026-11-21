@@ -10,6 +10,7 @@ import {
   parseServerMessage,
   type ClientMessage,
   type ParticipantSummary,
+  type RoomSize,
   type ServerMessage,
   type SessionMessage,
 } from "@/lib/protocol";
@@ -67,6 +68,8 @@ export type HostSnapshot = {
   /** The last `session` message, or null before the first. */
   session: SessionMessage | null;
   participants: ParticipantSummary[];
+  /** How big the room the participants are drawn in is, once known. */
+  room: RoomSize | null;
   /** Server-clock start time while a show runs, else null. */
   T0: number | null;
   /** The host's own `ClockSync` passed its ready gate. */
@@ -131,6 +134,7 @@ export class HostClient {
       connection: "connecting",
       session: null,
       participants: [],
+      room: null,
       T0: null,
       clockReady: false,
       lastError: null,
@@ -192,6 +196,29 @@ export class HostClient {
   setPositioning(config: PositioningConfig): boolean {
     this.update({ lastError: null });
     return this.send({ type: "positioning", config });
+  }
+
+  /**
+   * Load a show into the room, or reload it after saving (SPEC 2.5). Phones
+   * stay connected; the server answers with a new `session` message.
+   */
+  loadShow(showId: string): boolean {
+    this.update({ lastError: null });
+    return this.send({ type: "load", showId });
+  }
+
+  /**
+   * Move a phone on the room by hand (show coordinates, 0..1). It stays
+   * there until the phone finds its seat again.
+   */
+  placeParticipant(participantId: string, x: number, y: number): boolean {
+    this.update({ lastError: null });
+    return this.send({ type: "place", participantId, x, y });
+  }
+
+  /** Light up one phone so the host can spot it in the crowd (null: none). */
+  highlight(participantId: string | null): boolean {
+    return this.send({ type: "highlight", participantId });
   }
 
   /** Call on `visibilitychange`: a returning tab resyncs its clock. */
@@ -271,7 +298,10 @@ export class HostClient {
         this.update({ session: message, T0: message.T0 });
         return;
       case "participants":
-        this.update({ participants: message.list });
+        this.update({
+          participants: message.list,
+          room: message.room ?? this.snapshot.room,
+        });
         return;
       case "start":
         this.update({ T0: message.T0, lastError: null });
@@ -400,11 +430,14 @@ export function createHostedSession(
   });
 }
 
-/** Deps for the real host page. Call only in the browser. */
+/**
+ * Deps for the real host page. Call only in the browser. The host token is
+ * kept in localStorage: a room outlives the tab (SPEC 2.5).
+ */
 export function browserHostDeps(): HostClientDeps {
   let storage: KeyValueStorage | null = null;
   try {
-    storage = window.sessionStorage;
+    storage = window.localStorage;
   } catch {
     storage = null;
   }

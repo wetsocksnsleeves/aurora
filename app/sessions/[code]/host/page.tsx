@@ -1,13 +1,6 @@
-import type { Metadata } from "next";
-import { HostApp } from "./HostApp";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = {
-  title: "Aurora: host",
-};
-
-export default async function HostPage(
-  props: PageProps<"/sessions/[code]/host">,
-) {
-  const { code } = await props.params;
-  return <HostApp code={code.toUpperCase()} />;
+/** The room on `/` is the host screen now (SPEC 2.5). */
+export default function HostPage() {
+  redirect("/");
 }

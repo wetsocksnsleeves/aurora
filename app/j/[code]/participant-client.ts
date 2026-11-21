@@ -110,7 +110,12 @@ export type ParticipantSnapshot = {
   fatal: FatalError | null;
   /** The last non-fatal `error` message from the server, for debugging. */
   lastError: string | null;
+  /** The host is moving this phone: light up so they can spot it. */
+  highlighted: boolean;
 };
+
+/** A highlight the host never turned off (it lost connection) ends after this. */
+export const HIGHLIGHT_MAX_MS = 20_000;
 
 /** Which screen the page shows (SPEC 2.3). */
 export type ParticipantScreen =
@@ -211,6 +216,7 @@ export class ParticipantClient {
       clockDegraded: false,
       fatal: null,
       lastError: null,
+      highlighted: false,
     };
     // Deps resolve lazily, so the clock reaches them through closures.
     this.clock = new ClockSync({
@@ -385,7 +391,24 @@ export class ParticipantClient {
     // Jitter spreads a venue's worth of phones after a wifi blip (SPEC 4.3).
     const jitter = this.deps.random() * this.deps.connectDelayMaxMs;
     this.update({ connection: "reconnecting" });
+    this.setHighlighted(false);
     this.schedule(() => this.connect(), backoff + jitter);
+  }
+
+  private highlightTimer: unknown = null;
+
+  private setHighlighted(on: boolean): void {
+    if (this.highlightTimer !== null) {
+      this.deps.clearTimeout(this.highlightTimer);
+      this.highlightTimer = null;
+    }
+    if (on) {
+      this.highlightTimer = this.deps.setTimeout(() => {
+        this.highlightTimer = null;
+        this.update({ highlighted: false });
+      }, HIGHLIGHT_MAX_MS);
+    }
+    if (this.snapshot.highlighted !== on) this.update({ highlighted: on });
   }
 
   private fail(fatal: FatalError): void {
@@ -429,6 +452,9 @@ export class ParticipantClient {
         return;
       case "positioning":
         this.update({ positioning: message.config });
+        return;
+      case "highlight":
+        this.setHighlighted(message.on);
         return;
       case "error":
         if (message.reason === "unknown-session") {

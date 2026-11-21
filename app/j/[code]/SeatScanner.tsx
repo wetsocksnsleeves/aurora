@@ -39,6 +39,8 @@ const SAMPLES = 15;
 const SWEEP_TIMEOUT_MS = 30_000;
 /** How long the screen must sit still in a guide box to count. */
 const GUIDE_HOLD_MS = 700;
+/** Boxes to hold the screen in before the sweep stops with what it has. */
+const GUIDE_STEPS = 3;
 /** How close (fraction of the view's width) counts as in the box. */
 const GUIDE_TOLERANCE = 0.06;
 /** Rough camera-to-callback delay when the browser doesn't report it. */
@@ -273,7 +275,9 @@ export function SeatScanner({
         return;
       }
 
-      setProgress(Math.min(1, Math.max(sweep.progress, guideZone / 3)));
+      setProgress(
+        Math.min(1, Math.max(sweep.progress, guideZone / GUIDE_STEPS)),
+      );
       if (!found) setHint("Keep the whole screen in view");
       else if (guide?.inBox) setHint("Hold it there");
       else setHint("Move the screen inside the box");
@@ -281,7 +285,13 @@ export function SeatScanner({
       if (res) {
         measured = { fov: fovFromFocal(res.f, w, h), source: "sweep" };
         finish();
-      } else if (performance.now() - sweepStarted > SWEEP_TIMEOUT_MS) {
+      } else if (
+        guideZone >= GUIDE_STEPS ||
+        performance.now() - sweepStarted > SWEEP_TIMEOUT_MS
+      ) {
+        const guess = sweep.bestGuess();
+        if (guess)
+          measured = { fov: fovFromFocal(guess, w, h), source: "sweep" };
         finish();
       }
     };
@@ -363,7 +373,7 @@ export function SeatScanner({
           <>
             {sweeping ? (
               <p className={styles.scanStep}>
-                Step {Math.min(3, guideStep + 1)} of 3
+                Step {Math.min(GUIDE_STEPS, guideStep + 1)} of {GUIDE_STEPS}
               </p>
             ) : null}
             <p className={styles.scanMessage} aria-live="polite">

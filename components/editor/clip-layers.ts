@@ -1,5 +1,6 @@
 import type { Clip, Point } from "@/lib/types";
-import { fadeEnvelope } from "@/lib/compile";
+import { coverage, fadeEnvelope } from "@/lib/compile";
+import { blinkLevel } from "@/lib/patterns";
 import { activeClips, clipPolygonAt, isClipActive } from "./clips";
 import { toPx, type Size } from "./geometry";
 import { COLORS, tracePolygon } from "./draw";
@@ -43,6 +44,33 @@ function paintClip(
   }
 }
 
+/** Cells across the room when drawing an effect worked out per seat. */
+const PATTERN_GRID = 36;
+
+/** An effect clip as a grid of cells, each as bright as a phone there. */
+function paintPattern(
+  ctx: CanvasRenderingContext2D,
+  clip: Clip,
+  tMs: number,
+  size: Size,
+  alpha: number,
+): void {
+  const w = size.width / PATTERN_GRID;
+  const h = size.height / PATTERN_GRID;
+  for (let i = 0; i < PATTERN_GRID; i++) {
+    for (let j = 0; j < PATTERN_GRID; j++) {
+      const level = coverage(
+        clip,
+        { x: (i + 0.5) / PATTERN_GRID, y: (j + 0.5) / PATTERN_GRID },
+        tMs,
+      );
+      if (level <= 0) continue;
+      ctx.globalAlpha = alpha * level;
+      ctx.fillRect(i * w, j * h, w + 0.5, h + 0.5);
+    }
+  }
+}
+
 /**
  * Clips active at the playhead, drawn translucent bottom to top, with moving
  * shapes at their interpolated position and fades applied. Hidden while the
@@ -54,8 +82,13 @@ export const clipOverlayLayer: CanvasLayer = {
     if (state.previewMode !== "clips") return;
     const t = state.currentTimeMs;
     for (const clip of activeClips(state.show.clips, t)) {
-      ctx.globalAlpha = OVERLAY_ALPHA * fadeEnvelope(clip, t);
+      const alpha = OVERLAY_ALPHA * fadeEnvelope(clip, t);
       ctx.fillStyle = clip.color;
+      if (clip.shape.kind === "pattern") {
+        paintPattern(ctx, clip, t, size, alpha);
+        continue;
+      }
+      ctx.globalAlpha = alpha * (clip.blink ? blinkLevel(clip.blink, t) : 1);
       paintClip(ctx, state, clip, t, size, "fill");
     }
   },

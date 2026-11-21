@@ -26,6 +26,36 @@ const SHOW: Show = {
       shape: { kind: "fill" },
     },
     {
+      id: "strobe",
+      layer: 3,
+      startMs: 0,
+      endMs: 500,
+      color: "#ffffff",
+      fadeInMs: 0,
+      fadeOutMs: 0,
+      shape: { kind: "fill" },
+      blink: { periodMs: 120, duty: 0.5, soft: false },
+      label: "Strobe",
+    },
+    {
+      id: "wave",
+      layer: 4,
+      startMs: 0,
+      endMs: 500,
+      color: "#ffffff",
+      fadeInMs: 0,
+      fadeOutMs: 0,
+      shape: {
+        kind: "pattern",
+        pattern: "wave",
+        direction: "down",
+        size: 0.25,
+        stepMs: 250,
+        from: 0,
+        to: 0.5,
+      },
+    },
+    {
       id: "still",
       layer: 1,
       startMs: 0,
@@ -77,6 +107,10 @@ describe("parseClientMessage", () => {
         type: "positioning",
         config: { targetWidthM: 4.2, venueWidthM: 30, venueDepthM: 25 },
       },
+      { type: "load", showId: "show-1" },
+      { type: "highlight", participantId: "p1" },
+      { type: "highlight", participantId: null },
+      { type: "place", participantId: "p1", x: 0.25, y: 0.75 },
     ];
     for (const message of messages) {
       expect(okClient(message)).toEqual(message);
@@ -114,6 +148,8 @@ describe("parseClientMessage", () => {
     badClient('{"type":"clock","ready":true,"degraded":false,"rttMs":-1}');
     badClient('{"type":"host"}');
     badClient('{"type":"positioning"}');
+    badClient('{"type":"load"}');
+    badClient('{"type":"place","participantId":"p","x":2,"y":0}');
     badClient(
       '{"type":"positioning","config":{"targetWidthM":0,"venueWidthM":20,"venueDepthM":20}}',
     );
@@ -154,6 +190,7 @@ describe("parseServerMessage", () => {
       },
       { type: "start", T0: 12_345.5 },
       { type: "stop" },
+      { type: "highlight", on: true },
       {
         type: "positioning",
         config: { targetWidthM: 3, venueWidthM: 20, venueDepthM: 20 },
@@ -181,6 +218,7 @@ describe("parseServerMessage", () => {
       },
       {
         type: "participants",
+        room: { widthM: 12.5, depthM: 9 },
         list: [
           {
             id: "p1",

@@ -11,12 +11,12 @@ import {
   type ServerMessage,
 } from "@/lib/protocol";
 import { builtinShow } from "@/lib/builtin-shows";
-import { testSchedule } from "@/lib/test-show";
+import { TEST_SHOW_ID, testSchedule } from "@/lib/test-show";
 import { getShow } from "./db";
 import { compileInWorker } from "./compile-pool";
 import { LOOPBACK_HOSTNAMES } from "./http";
 import { lanAddresses } from "./lan";
-import type { Point, Show } from "@/lib/types";
+import type { Point, PositioningConfig, Show } from "@/lib/types";
 import {
   SessionError,
   getSessionStore,
@@ -90,6 +90,19 @@ export const testWaveComputeSchedule: ScheduleComputer = (show, seat) => ({
 export const defaultResolveShow: ShowResolver = (showId) =>
   builtinShow(showId) ?? getShow(showId) ?? undefined;
 
+/** A stored room: enough to bring a session back with the same code. */
+export type RoomRecord = {
+  code: string;
+  hostToken: string;
+  showId: string;
+  positioning: PositioningConfig;
+};
+
+export type RoomStore = {
+  load(code: string): RoomRecord | null;
+  save(room: RoomRecord): void;
+};
+
 export type AttachOptions = {
   /** Next's `app.getUpgradeHandler()`. */
   nextUpgrade: UpgradeHandler;
@@ -109,6 +122,24 @@ export type AttachOptions = {
   lanAddresses?: () => string[];
   computeSchedule?: ScheduleComputer;
   resolveShow?: ShowResolver;
+  /**
+   * Where rooms are kept so they survive a restart (SPEC 2.5). The app server
+   * passes the SQLite store; without one, rooms live in memory only.
+   */
+  rooms?: RoomStore;
+  /**
+   * Fit shows to the crowd (SPEC 2.5): seats are mapped through the crowd's
+   * bounding box before compiling. The app server turns it on; off, seats
+   * are used as sent.
+   */
+  fitCrowd?: boolean;
+  /** Delay before refitting the crowd box after seats change. Default 500 ms. */
+  refitDelayMs?: number;
+  /**
+   * Minimum time between refits of one session, each of which can recompile
+   * every phone. Default 3 s, so seat spam can't keep the server compiling.
+   */
+  refitIntervalMs?: number;
   /** Defaults to `PARTICIPANTS_THROTTLE_MS`. */
   participantsThrottleMs?: number;
   /** How often to drop participants disconnected for 60 s. Default 5 s. */
@@ -230,6 +261,17 @@ export class WsRouter {
   private readonly now: () => number;
   /** Host sockets per session code. */
   private readonly hosts = new Map<string, Set<Connection>>();
+  /** The participant each room's host is moving, by session code. */
+  private readonly highlighted = new Map<string, string>();
+  /** Pending crowd refits per session code. */
+  private readonly refitTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
+  /** When each session last refitted (wall clock). */
+  private readonly lastRefit = new Map<string, number>();
+  private readonly refitDelayMs: number;
+  private readonly refitIntervalMs: number;
   /** The current socket of each participant id. */
   private readonly participantSockets = new Map<string, Connection>();
   private readonly participantsThrottle = new Map<
@@ -245,6 +287,8 @@ export class WsRouter {
     this.store = options.store ?? getSessionStore();
     this.computeSchedule = options.computeSchedule ?? defaultComputeSchedule;
     this.resolveShow = options.resolveShow ?? defaultResolveShow;
+    this.refitDelayMs = options.refitDelayMs ?? 500;
+    this.refitIntervalMs = options.refitIntervalMs ?? 3_000;
     this.throttleMs =
       options.participantsThrottleMs ?? PARTICIPANTS_THROTTLE_MS;
     this.startLeadMs = options.startLeadMs ?? startLeadMsFromEnv();
@@ -341,10 +385,15 @@ export class WsRouter {
       t.timer = null;
       t.lastSentAt = Date.now();
     }
-    this.sendToHosts(session, {
+    this.sendToHosts(session, this.participantsMessage(session));
+  }
+
+  private participantsMessage(session: Session): ServerMessage {
+    return {
       type: "participants",
       list: this.store.summaries(session),
-    });
+      room: this.store.roomSize(session),
+    };
   }
 
   // -- Receiving -------------------------------------------------------------
@@ -387,10 +436,12 @@ export class WsRouter {
         this.participantSockets.delete(role.participantId);
       }
       if (this.store.disconnect(role.session, role.participantId, role.token)) {
+        this.scheduleRefit(role.session);
         this.notifyParticipantsChanged(role.session);
       }
     } else if (role.kind === "host") {
       this.hosts.get(role.session.code)?.delete(conn);
+      this.setHighlight(role.session.code, null);
     }
   }
 
@@ -404,6 +455,9 @@ export class WsRouter {
     start: (conn) => this.onStart(conn),
     stop: (conn) => this.onStop(conn),
     positioning: (conn, msg) => this.onPositioning(conn, msg),
+    load: (conn, msg) => this.onLoad(conn, msg),
+    place: (conn, msg) => this.onPlace(conn, msg),
+    highlight: (conn, msg) => this.onHighlight(conn, msg),
   };
 
   /**
@@ -454,6 +508,9 @@ export class WsRouter {
   ) {
     const session = this.requireHost(conn);
     this.store.setPositioning(session, msg.config);
+    this.saveRoom(session);
+    // The minimum room is in metres, so it moves with the sizes.
+    this.scheduleRefit(session);
     const reply = { type: "positioning", config: session.positioning } as const;
     this.broadcastToParticipants(session, reply);
     this.sendToHosts(session, reply);
@@ -481,11 +538,14 @@ export class WsRouter {
     this.notifyParticipantsChanged(session);
   }
 
-  private onJoin(conn: Connection, msg: MessageOfType<ClientMessage, "join">) {
+  private async onJoin(
+    conn: Connection,
+    msg: MessageOfType<ClientMessage, "join">,
+  ) {
     if (conn.role.kind !== "none") {
       throw new SessionError("bad-message", "this socket already joined");
     }
-    const session = this.store.requireSession(msg.code);
+    const session = await this.sessionFor(msg.code);
     const { participant, resumed } = this.store.join(session, {
       participantId: msg.participantId,
       resumeToken: msg.resumeToken,
@@ -522,13 +582,18 @@ export class WsRouter {
         void this.updateSchedule(session, participant);
       }
     }
+    if (participant.seat) this.scheduleRefit(session);
     this.notifyParticipantsChanged(session);
   }
 
   private onSeat(conn: Connection, msg: MessageOfType<ClientMessage, "seat">) {
     const { session, participant } = this.requireParticipant(conn);
     this.store.setSeat(session, participant.id, { x: msg.x, y: msg.y });
-    if (participant.readyTapped) void this.updateSchedule(session, participant);
+    // Only Ready phones shape the crowd, so only they trigger a refit.
+    if (participant.readyTapped) {
+      void this.updateSchedule(session, participant);
+      this.scheduleRefit(session);
+    }
     this.notifyParticipantsChanged(session);
   }
 
@@ -536,6 +601,7 @@ export class WsRouter {
     const { session, participant } = this.requireParticipant(conn);
     this.store.markReady(session, participant.id);
     void this.updateSchedule(session, participant);
+    this.scheduleRefit(session);
     this.notifyParticipantsChanged(session);
   }
 
@@ -553,10 +619,17 @@ export class WsRouter {
       if (!show) {
         throw new SessionError("unknown-show", `no show "${msg.showId}"`);
       }
-      session = this.store.createSession(show);
+      // Skip codes a stored room still owns, so rooms never share a code.
+      session = this.store.createSession(
+        show,
+        undefined,
+        (code) => this.options.rooms?.load(code) != null,
+      );
       created = true;
+      this.startCrowd(session);
+      this.saveRoom(session);
     } else {
-      session = this.store.requireSession(msg.code);
+      session = await this.sessionFor(msg.code);
       // The join code is public (QR code), so re-attaching needs the token.
       if (!tokensMatch(session.hostToken, msg.hostToken)) {
         throw new SessionError("not-host", "wrong or missing host token");
@@ -570,6 +643,89 @@ export class WsRouter {
     }
     set.add(conn);
 
+    // Only the creating host learns the token; re-attaching hosts have it.
+    this.send(conn, this.sessionMessage(conn, session, created));
+    this.send(conn, this.participantsMessage(session));
+  }
+
+  /**
+   * Host loads a show into the room, or reloads it after saving an edit
+   * (SPEC 2.5). Phones stay connected and get schedules for the new show.
+   */
+  /**
+   * Light up the phone the host is moving, and turn off the last one. One
+   * per room; cleared when that host disconnects.
+   */
+  private onHighlight(
+    conn: Connection,
+    msg: MessageOfType<ClientMessage, "highlight">,
+  ) {
+    const session = this.requireHost(conn);
+    if (msg.participantId !== null) {
+      this.store.getParticipant(session, msg.participantId);
+    }
+    this.setHighlight(session.code, msg.participantId);
+  }
+
+  private setHighlight(code: string, participantId: string | null): void {
+    const previous = this.highlighted.get(code) ?? null;
+    if (previous === participantId) return;
+    if (previous) {
+      const socket = this.participantSockets.get(previous);
+      if (socket) this.send(socket, { type: "highlight", on: false });
+    }
+    if (participantId) {
+      this.highlighted.set(code, participantId);
+      const socket = this.participantSockets.get(participantId);
+      if (socket) this.send(socket, { type: "highlight", on: true });
+    } else {
+      this.highlighted.delete(code);
+    }
+  }
+
+  /** The host dragged a phone to a new spot (SPEC 2.5). */
+  private onPlace(
+    conn: Connection,
+    msg: MessageOfType<ClientMessage, "place">,
+  ) {
+    const session = this.requireHost(conn);
+    const participant = this.store.place(session, msg.participantId, {
+      x: msg.x,
+      y: msg.y,
+    });
+    if (participant.readyTapped) void this.updateSchedule(session, participant);
+    // A placed phone no longer counts towards the crowd's shape.
+    this.scheduleRefit(session);
+    this.notifyParticipantsChanged(session);
+  }
+
+  private async onLoad(
+    conn: Connection,
+    msg: MessageOfType<ClientMessage, "load">,
+  ) {
+    const session = this.requireHost(conn);
+    if (session.T0 !== null) {
+      throw new SessionError("show-running", "stop the show before loading");
+    }
+    const show = await this.resolveShow(msg.showId);
+    if (!show) {
+      throw new SessionError("unknown-show", `no show "${msg.showId}"`);
+    }
+    const stale = this.store.setShow(session, show);
+    this.saveRoom(session);
+    for (const host of this.hosts.get(session.code) ?? []) {
+      this.send(host, this.sessionMessage(host, session, false));
+    }
+    for (const p of stale) void this.updateSchedule(session, p);
+    this.notifyParticipantsChanged(session);
+  }
+
+  /** The `session` message for one host socket (its join URL depends on its origin). */
+  private sessionMessage(
+    conn: Connection,
+    session: Session,
+    withToken: boolean,
+  ): ServerMessage {
     const base = (
       this.options.publicUrl ??
       process.env.PUBLIC_URL ??
@@ -578,7 +734,7 @@ export class WsRouter {
         (this.options.lanAddresses ?? lanAddresses)(),
       )
     ).replace(/\/+$/, "");
-    this.send(conn, {
+    return {
       type: "session",
       code: session.code,
       joinUrl: `${base}/j/${session.code}`,
@@ -587,13 +743,74 @@ export class WsRouter {
       T0: session.T0,
       show: session.show,
       positioning: session.positioning,
-      // Only the creating host learns the token; re-attaching hosts have it.
-      ...(created ? { hostToken: session.hostToken } : {}),
+      ...(withToken ? { hostToken: session.hostToken } : {}),
+    };
+  }
+
+  /**
+   * The live session for `code`, or a stored room brought back after a
+   * restart (SPEC 2.5). Throws `unknown-session` if neither exists.
+   */
+  private async sessionFor(code: string): Promise<Session> {
+    const live = this.store.getSession(code);
+    if (live) return live;
+    const room = this.options.rooms?.load(code.toUpperCase());
+    if (!room) return this.store.requireSession(code);
+    const show =
+      (await this.resolveShow(room.showId)) ??
+      (await this.resolveShow(TEST_SHOW_ID));
+    if (!show) return this.store.requireSession(code);
+    // Another request may have restored it while the show resolved.
+    const again = this.store.getSession(code);
+    if (again) return again;
+    const session = this.store.createSession(show, {
+      code: room.code,
+      hostToken: room.hostToken,
+      positioning: room.positioning,
     });
-    this.send(conn, {
-      type: "participants",
-      list: this.store.summaries(session),
-    });
+    this.startCrowd(session);
+    return session;
+  }
+
+  /**
+   * With crowd fitting on, a new room starts as the minimum room around the
+   * screen, so the first phones show where they are before anyone is ready.
+   */
+  private startCrowd(session: Session): void {
+    if (this.options.fitCrowd) this.store.refitCrowd(session);
+  }
+
+  private saveRoom(session: Session): void {
+    try {
+      this.options.rooms?.save({
+        code: session.code,
+        hostToken: session.hostToken,
+        showId: session.showId,
+        positioning: session.positioning,
+      });
+    } catch (err) {
+      console.error("ws: could not save the room", err);
+    }
+  }
+
+  /**
+   * Refit the crowd box a moment after seats change (a burst of joins
+   * becomes one refit), at most once per `refitIntervalMs`, and recompile
+   * everyone if it moved.
+   */
+  private scheduleRefit(session: Session): void {
+    if (!this.options.fitCrowd || this.refitTimers.has(session.code)) return;
+    const since = Date.now() - (this.lastRefit.get(session.code) ?? -Infinity);
+    const wait = Math.max(this.refitDelayMs, this.refitIntervalMs - since);
+    const timer = setTimeout(() => {
+      this.refitTimers.delete(session.code);
+      this.lastRefit.set(session.code, Date.now());
+      const stale = this.store.refitCrowd(session);
+      for (const p of stale) void this.updateSchedule(session, p);
+      if (stale.length) this.notifyParticipantsChanged(session);
+    }, wait);
+    timer.unref?.();
+    this.refitTimers.set(session.code, timer);
   }
 
   // -- Helpers ---------------------------------------------------------------
@@ -630,7 +847,8 @@ export class WsRouter {
     session: Session,
     participant: Participant,
   ): Promise<void> {
-    const { seat, scheduleVersion } = participant;
+    const seat = this.store.showSeat(session, participant);
+    const { scheduleVersion } = participant;
     if (!seat) return;
     let schedule: TimedSchedule;
     try {

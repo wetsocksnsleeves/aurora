@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { ParticipantApp } from "./ParticipantApp";
 
 export const metadata: Metadata = {
-  title: "Aurora: join the show",
+  title: "lightshow: join the show",
 };
 
 export default async function JoinPage(props: PageProps<"/j/[code]">) {

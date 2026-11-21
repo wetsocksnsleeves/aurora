@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import next from "next";
+import { getRoom, saveRoom } from "./db";
 import { attachWebSocketServer } from "./ws";
 
 export type StartServerOptions = {
@@ -45,6 +46,9 @@ export async function startServer(
   const wss = attachWebSocketServer(server, {
     nextUpgrade: app.getUpgradeHandler(),
     forwardNextUpgrades: options.dev,
+    // Rooms survive a restart, and shows fit the crowd (SPEC 2.5).
+    rooms: { load: getRoom, save: saveRoom },
+    fitCrowd: true,
   });
 
   await new Promise<void>((resolve, reject) => {

@@ -22,13 +22,13 @@ export function Shell({
 }: {
   screen: string;
   /** Background accent. */
-  tone?: "ready";
+  tone?: "ready" | "moving";
   children: ReactNode;
   actions?: ReactNode;
 }) {
   return (
     <main
-      className={`${styles.shell} ${tone === "ready" ? styles.ready : ""} ${body.className}`}
+      className={`${styles.shell} ${tone ? styles[tone] : ""} ${body.className}`}
       data-screen={screen}
     >
       <header className={styles.top}>

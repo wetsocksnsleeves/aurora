@@ -5,6 +5,13 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import type { ErrorReason, ParticipantSummary } from "@/lib/protocol";
+import {
+  crowdBox,
+  boxChanged,
+  fitToCrowd,
+  minimumRoom,
+  type CrowdBox,
+} from "@/lib/crowd";
 import { DEFAULT_POSITIONING } from "@/lib/positioning/seat";
 import type {
   ParticipantState,
@@ -51,6 +58,11 @@ export type Participant = {
   /** Derived. Do not set directly; call a store method. */
   state: ParticipantState;
   seat: Point | null;
+  /**
+   * Where the host put this participant, in show coordinates (already
+   * fitted). Wins over `seat` until the phone finds its seat again.
+   */
+  placed: Point | null;
   /** The participant tapped Ready. Survives reconnects. */
   readyTapped: boolean;
   /** The last schedule computed for the current seat, or null if pending. */
@@ -71,7 +83,10 @@ export type Participant = {
 export type Session = {
   code: string;
   showId: string;
-  /** Snapshot of the show taken at host time (SPEC section 8). */
+  /**
+   * The show loaded into the room (SPEC 2.5): a snapshot, replaced whenever
+   * the host loads or saves a show. Phones stay connected across changes.
+   */
   show: Show;
   createdAt: number;
   /**
@@ -85,7 +100,21 @@ export type Session = {
   T0: number | null;
   /** Sizes for finding seats with the camera (SPEC 2.4), set by the host. */
   positioning: PositioningConfig;
+  /**
+   * Where the crowd is: shows are fitted to it, so seats are mapped through
+   * this box before compiling (`lib/crowd.ts`). Null (seats used as they
+   * are) until the first refit, which with nobody ready gives the minimum
+   * room. Not refitted while a show plays.
+   */
+  crowd: CrowdBox | null;
   participants: Map<string, Participant>;
+};
+
+/** What a restored room brings back (`server/db.ts` rooms table). */
+export type RestoredRoom = {
+  code: string;
+  hostToken: string;
+  positioning: PositioningConfig;
 };
 
 /** Thrown by store methods. `reason` maps onto the protocol `error` message. */
@@ -193,18 +222,30 @@ export class SessionStore {
 
   // -- Sessions -------------------------------------------------------------
 
-  /** Create a session for a snapshot of `show` with a fresh join code. */
-  createSession(show: Show): Session {
-    let code = generateJoinCode(this.randomInt);
-    while (this.sessions.has(code)) code = generateJoinCode(this.randomInt);
+  /**
+   * Create a session for a snapshot of `show` with a fresh join code, or
+   * bring back a stored room with its own code and host token.
+   */
+  createSession(
+    show: Show,
+    restore?: RestoredRoom,
+    /** Codes already taken elsewhere, e.g. by a stored room not loaded yet. */
+    taken: (code: string) => boolean = () => false,
+  ): Session {
+    let code = restore ? normalizeJoinCode(restore.code) : "";
+    if (!restore) {
+      do code = generateJoinCode(this.randomInt);
+      while (this.sessions.has(code) || taken(code));
+    }
     const session: Session = {
       code,
       showId: show.id,
       show: structuredClone(show),
       createdAt: this.now(),
-      hostToken: newHostToken(),
+      hostToken: restore?.hostToken ?? newHostToken(),
       T0: null,
-      positioning: { ...DEFAULT_POSITIONING },
+      positioning: { ...(restore?.positioning ?? DEFAULT_POSITIONING) },
+      crowd: null,
       participants: new Map(),
     };
     this.sessions.set(code, session);
@@ -269,6 +310,7 @@ export class SessionStore {
       resumeToken: this.newResumeToken(),
       state: "connected",
       seat: null,
+      placed: null,
       readyTapped: false,
       schedule: null,
       scheduleVersion: 0,
@@ -298,6 +340,7 @@ export class SessionStore {
   setSeat(session: Session, id: string, seat: Point): Participant {
     const p = this.getParticipant(session, id);
     p.seat = { x: seat.x, y: seat.y };
+    p.placed = null;
     if (p.readyTapped) this.invalidateSchedule(p);
     this.refresh(session, p);
     return p;
@@ -390,6 +433,73 @@ export class SessionStore {
     session.positioning = { ...config };
   }
 
+  /**
+   * Load a show into the room (SPEC 2.5). Every ready participant's schedule
+   * goes stale: `scheduleVersion` is bumped, but the old schedule is kept so
+   * phones stay in standby until the new one lands. Returns the participants
+   * to recompile.
+   */
+  setShow(session: Session, show: Show): Participant[] {
+    session.showId = show.id;
+    session.show = structuredClone(show);
+    return this.staleSchedules(session);
+  }
+
+  /**
+   * Refit the crowd box to the connected participants who tapped Ready.
+   * Returns the participants to recompile when the box moved enough to
+   * matter, else []. Does nothing while a show plays, so the show keeps its
+   * shape.
+   */
+  refitCrowd(session: Session): Participant[] {
+    if (session.T0 !== null) return [];
+    const seats: Point[] = [];
+    for (const p of session.participants.values()) {
+      // Placed participants are where the host wants them, not where the
+      // crowd is.
+      if (p.connected && p.readyTapped && p.seat && !p.placed) {
+        seats.push(p.seat);
+      }
+    }
+    const next = crowdBox(seats, minimumRoom(session.positioning));
+    if (!boxChanged(session.crowd, next)) return [];
+    session.crowd = next;
+    return this.staleSchedules(session);
+  }
+
+  /** How big (metres) the room the host draws is: the crowd's box. */
+  roomSize(session: Session): { widthM: number; depthM: number } {
+    const { venueWidthM, venueDepthM } = session.positioning;
+    const box = session.crowd;
+    return box
+      ? {
+          widthM: (box.maxX - box.minX) * venueWidthM,
+          depthM: (box.maxY - box.minY) * venueDepthM,
+        }
+      : { widthM: venueWidthM, depthM: venueDepthM };
+  }
+
+  /** A participant's seat in show coordinates: placed, or fitted to the crowd. */
+  showSeat(session: Session, p: Participant): Point | null {
+    if (p.placed) return p.placed;
+    return p.seat ? fitToCrowd(p.seat, session.crowd) : null;
+  }
+
+  /**
+   * The host moved a participant to `point` (show coordinates). Needs a
+   * seat: a phone that hasn't found one yet can't be placed.
+   */
+  place(session: Session, id: string, point: Point): Participant {
+    const p = this.getParticipant(session, id);
+    if (!p.seat) {
+      throw new SessionError("no-seat", "that phone has no seat yet");
+    }
+    p.placed = { x: point.x, y: point.y };
+    if (p.readyTapped) this.invalidateSchedule(p);
+    this.refresh(session, p);
+    return p;
+  }
+
   /** Show starts at `T0` (server clock). Standby participants become playing. */
   startShow(session: Session, T0: number): void {
     session.T0 = T0;
@@ -404,8 +514,11 @@ export class SessionStore {
 
   // -- Views ----------------------------------------------------------------
 
+  /** For the host: positions are in show coordinates, like the clips. */
   summaries(session: Session): ParticipantSummary[] {
-    return [...session.participants.values()].map(toSummary);
+    return [...session.participants.values()].map((p) =>
+      toSummary(p, this.showSeat(session, p)),
+    );
   }
 
   countByState(session: Session): Record<ParticipantState, number> {
@@ -428,6 +541,17 @@ export class SessionStore {
     p.scheduleVersion += 1;
   }
 
+  /** Bump every ready participant's schedule version, keeping the schedule. */
+  private staleSchedules(session: Session): Participant[] {
+    const stale: Participant[] = [];
+    for (const p of session.participants.values()) {
+      if (!p.readyTapped || !p.seat) continue;
+      p.scheduleVersion += 1;
+      stale.push(p);
+    }
+    return stale;
+  }
+
   private refresh(session: Session, p: Participant): void {
     p.state = deriveState(p, session.T0 !== null, this.requireClockSync);
   }
@@ -437,11 +561,14 @@ export class SessionStore {
   }
 }
 
-export function toSummary(p: Participant): ParticipantSummary {
+export function toSummary(
+  p: Participant,
+  seat: Point | null = p.seat,
+): ParticipantSummary {
   return {
     id: p.id,
-    x: p.seat?.x ?? null,
-    y: p.seat?.y ?? null,
+    x: seat?.x ?? null,
+    y: seat?.y ?? null,
     state: p.state,
     rttMs: p.clock.rttMs,
     degraded: p.clock.degraded,

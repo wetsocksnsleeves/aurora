@@ -415,6 +415,88 @@ describe("fades", () => {
   });
 });
 
+describe("effects", () => {
+  const pattern = (
+    over: Partial<Extract<Clip["shape"], { kind: "pattern" }>>,
+  ): Clip["shape"] => ({
+    kind: "pattern",
+    pattern: "wave",
+    direction: "right",
+    size: 0.2,
+    stepMs: 250,
+    from: 0,
+    to: 1,
+    ...over,
+  });
+
+  it("moves a wave across the room", () => {
+    const s = show([clip({ shape: pattern({}) })]);
+    // Half way through, the band is in the middle, not at the edges.
+    expect(colorAt(s, { x: 0.5, y: 0.5 }, 500)).toBe("#ffffff");
+    expect(colorAt(s, { x: 0.05, y: 0.5 }, 500)).toBe("#000000");
+    expect(colorAt(s, { x: 0.95, y: 0.5 }, 500)).toBe("#000000");
+    // Early on it is at the left.
+    expect(colorAt(s, { x: 0.05, y: 0.5 }, 100)).not.toBe("#000000");
+  });
+
+  it("splits from the middle out", () => {
+    const s = show([clip({ shape: pattern({ pattern: "split" }) })]);
+    expect(colorAt(s, { x: 0.5, y: 0.5 }, 50)).not.toBe("#000000");
+    expect(colorAt(s, { x: 0.5, y: 0.5 }, 900)).toBe("#000000");
+    expect(colorAt(s, { x: 0.05, y: 0.5 }, 900)).not.toBe("#000000");
+  });
+
+  it("chases one column at a time", () => {
+    const s = show([
+      clip({ shape: pattern({ pattern: "chase", size: 0.25, stepMs: 250 }) }),
+    ]);
+    // Step 0 lights the first quarter, step 1 the second.
+    expect(colorAt(s, { x: 0.1, y: 0.5 }, 0)).toBe("#ffffff");
+    expect(colorAt(s, { x: 0.3, y: 0.5 }, 0)).toBe("#000000");
+    expect(colorAt(s, { x: 0.3, y: 0.5 }, 260)).toBe("#ffffff");
+  });
+
+  it("sparkles about the share of seats asked for", () => {
+    const s = show([
+      clip({ shape: pattern({ pattern: "sparkle", size: 0.3, stepMs: 200 }) }),
+    ]);
+    let lit = 0;
+    for (let i = 0; i < 400; i++) {
+      const seat = { x: (i % 20) / 20 + 0.01, y: Math.floor(i / 20) / 20 };
+      if (colorAt(s, seat, 0) !== "#000000") lit++;
+    }
+    expect(lit / 400).toBeGreaterThan(0.2);
+    expect(lit / 400).toBeLessThan(0.4);
+  });
+
+  it("lets a clip below show through while a blink is off", () => {
+    const s = show([
+      clip({ color: "#ff0000", layer: 0 }),
+      clip({ layer: 1, blink: { periodMs: 200, duty: 0.5, soft: false } }),
+    ]);
+    expect(colorAt(s, centre, 40)).toBe("#ffffff");
+    expect(colorAt(s, centre, 140)).toBe("#ff0000");
+  });
+
+  it("compiles effects the same as the preview", () => {
+    const s = show([
+      clip({ shape: pattern({}), endMs: 1500 }),
+      clip({
+        layer: 1,
+        startMs: 300,
+        blink: { periodMs: 400, duty: 0.5, soft: true },
+      }),
+    ]);
+    for (const seat of [centre, { x: 0.1, y: 0.9 }]) {
+      const { events } = compileSchedule(s, seat);
+      for (let t = 0; t < 2000; t += SAMPLE_MS) {
+        const at = events.filter((e) => e.tMs <= t).at(-1)!;
+        expect(at.color).toBe(colorAt(s, seat, t));
+      }
+    }
+  });
+});
+
 describe("benchmark", () => {
   it("compiles a 3-minute show for one seat in under 10 ms", () => {
     // 3 minutes of mixed content: a fill every 2 s, a wave every 4 s across

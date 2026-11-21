@@ -1,7 +1,10 @@
 import {
   PARTICIPANT_STATES,
+  PATTERN_KINDS,
   type Clip,
   type ClipShape,
+  type Direction,
+  type PatternKind,
   type ParticipantState,
   type Point,
   type PositioningConfig,
@@ -91,6 +94,26 @@ export type PositioningRequest = {
   config: PositioningConfig;
 };
 
+/**
+ * Not in SPEC 5.2. Host loads a show into its room, or reloads it after an
+ * edit (SPEC 2.5). Phones stay connected: the server recompiles every
+ * schedule from the new show and sends it. Refused with `show-running`
+ * while a show plays.
+ */
+export type LoadShowRequest = { type: "load"; showId: string };
+
+/**
+ * Host only: put a participant at `x`, `y` in the room as the host sees it
+ * (0..1, fitted to the crowd), for last-minute fixes. Holds until the phone
+ * finds its seat again.
+ */
+export type PlaceRequest = {
+  type: "place";
+  participantId: string;
+  x: number;
+  y: number;
+};
+
 export type ClientMessage =
   | JoinMessage
   | SeatMessage
@@ -100,7 +123,10 @@ export type ClientMessage =
   | HostMessage
   | StartRequest
   | StopRequest
-  | PositioningRequest;
+  | PositioningRequest
+  | LoadShowRequest
+  | PlaceRequest
+  | HighlightRequest;
 
 export type ClientMessageType = ClientMessage["type"];
 
@@ -193,7 +219,26 @@ export type ParticipantSummary = {
 export type ParticipantsMessage = {
   type: "participants";
   list: ParticipantSummary[];
+  /**
+   * The real size of the room the list is drawn in (metres): positions are
+   * fitted to the crowd, so this changes as people find their seats.
+   */
+  room?: RoomSize;
 };
+
+export type RoomSize = { widthM: number; depthM: number };
+
+/**
+ * Host to server: light up this participant's phone so the host can spot
+ * it in the crowd while moving it (null: nobody).
+ */
+export type HighlightRequest = {
+  type: "highlight";
+  participantId: string | null;
+};
+
+/** Server to participant: the host is moving you; light up (or stop). */
+export type HighlightMessage = { type: "highlight"; on: boolean };
 
 export const ERROR_REASONS = [
   "bad-message",
@@ -227,6 +272,7 @@ export type ServerMessage =
   | SessionMessage
   | ParticipantsMessage
   | PositioningMessage
+  | HighlightMessage
   | ErrorMessage;
 
 export type ServerMessageType = ServerMessage["type"];
@@ -350,6 +396,23 @@ function toClientMessage(v: Rec): ClientMessage {
       return { type: "stop" };
     case "positioning":
       return { type: "positioning", config: positioningConfig(v.config) };
+    case "load":
+      return { type: "load", showId: str(v, "showId", MAX_ID_LENGTH) };
+    case "highlight":
+      return {
+        type: "highlight",
+        participantId:
+          v.participantId === null
+            ? null
+            : str(v, "participantId", MAX_ID_LENGTH),
+      };
+    case "place":
+      return {
+        type: "place",
+        participantId: str(v, "participantId", MAX_ID_LENGTH),
+        x: unit(v, "x"),
+        y: unit(v, "y"),
+      };
     default:
       throw new InvalidMessage(`unknown client message type "${v.type}"`);
   }
@@ -400,11 +463,22 @@ function toServerMessage(v: Rec): ServerMessage {
       }
       return msg;
     }
-    case "participants":
-      return {
+    case "participants": {
+      const message: ParticipantsMessage = {
         type: "participants",
         list: arr(v, "list").map(participantSummary),
       };
+      if (v.room !== undefined && v.room !== null) {
+        const room = rec(v, "room");
+        message.room = {
+          widthM: num(room, "widthM"),
+          depthM: num(room, "depthM"),
+        };
+      }
+      return message;
+    }
+    case "highlight":
+      return { type: "highlight", on: bool(v, "on") };
     case "positioning":
       return { type: "positioning", config: positioningConfig(v.config) };
     case "error": {
@@ -557,7 +631,7 @@ function show(value: unknown): Show {
 
 function clip(value: unknown): Clip {
   if (!isRecord(value)) throw new InvalidMessage("clip must be an object");
-  return {
+  const parsed: Clip = {
     id: str(value, "id"),
     layer: num(value, "layer"),
     startMs: num(value, "startMs"),
@@ -567,12 +641,44 @@ function clip(value: unknown): Clip {
     fadeOutMs: num(value, "fadeOutMs"),
     shape: clipShape(rec(value, "shape")),
   };
+  if (value.blink !== undefined && value.blink !== null) {
+    const b = rec(value, "blink");
+    parsed.blink = {
+      periodMs: num(b, "periodMs"),
+      duty: num(b, "duty"),
+      soft: bool(b, "soft"),
+    };
+  }
+  if (value.label !== undefined && value.label !== null) {
+    parsed.label = str(value, "label");
+  }
+  return parsed;
 }
+
+const DIRECTIONS: readonly Direction[] = ["left", "right", "up", "down"];
 
 function clipShape(v: Rec): ClipShape {
   if (v.kind === "fill") return { kind: "fill" };
+  if (v.kind === "pattern") {
+    const pattern = str(v, "pattern") as PatternKind;
+    const direction = str(v, "direction") as Direction;
+    if (!PATTERN_KINDS.includes(pattern) || !DIRECTIONS.includes(direction)) {
+      throw new InvalidMessage("clip pattern or direction is not known");
+    }
+    return {
+      kind: "pattern",
+      pattern,
+      direction,
+      size: num(v, "size"),
+      stepMs: num(v, "stepMs"),
+      from: num(v, "from"),
+      to: num(v, "to"),
+    };
+  }
   if (v.kind !== "polygon") {
-    throw new InvalidMessage("clip `shape.kind` must be fill or polygon");
+    throw new InvalidMessage(
+      "clip `shape.kind` must be fill, polygon or pattern",
+    );
   }
   const shape: ClipShape = {
     kind: "polygon",

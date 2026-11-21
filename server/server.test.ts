@@ -56,7 +56,7 @@ describe("custom server", () => {
   it("serves the home page over HTTP", async () => {
     const res = await fetch(`${server.httpUrl}/`);
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain("Aurora");
+    expect(await res.text()).toContain("lightshow");
   }, 60_000);
 
   it("leaves the Next HMR socket working after a page load", async () => {
@@ -173,8 +173,14 @@ describe("participant page", () => {
       while (latest.list.find((p) => p.id === id)?.state !== "standby") {
         latest = await host.next("participants");
       }
+      // Positions reach the host fitted to the crowd (SPEC 2.5), so not as sent.
       expect(latest.list).toContainEqual(
-        expect.objectContaining({ id, x: 0.3, y: 0.6, state: "standby" }),
+        expect.objectContaining({
+          id,
+          x: expect.any(Number),
+          y: expect.any(Number),
+          state: "standby",
+        }),
       );
       // Standby came from a real handshake: the clock is ready and reported.
       expect(client.clock.ready).toBe(true);
@@ -276,8 +282,9 @@ describe("host page", () => {
       expect(host.getSnapshot().participants).toEqual([
         {
           id: participantId,
-          x: 0.7,
-          y: 0.4,
+          // Fitted to the crowd (SPEC 2.5), so not as sent.
+          x: expect.any(Number),
+          y: expect.any(Number),
           state: "standby",
           rttMs: 180,
           degraded: true,

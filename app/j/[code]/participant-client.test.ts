@@ -9,6 +9,7 @@ import { FakeTime } from "@/lib/fake-time";
 import { TEST_VENUE } from "@/lib/test-show";
 import {
   CLOSE_REPLACED,
+  HIGHLIGHT_MAX_MS,
   ParticipantClient,
   participantScreen,
   storageKey,
@@ -353,6 +354,24 @@ describe("ParticipantClient", () => {
     t.last().receive({ type: "stop" });
     expect(t.client.getSnapshot().T0).toBeNull();
     expect(participantScreen(t.client.getSnapshot())).toBe("standby");
+  });
+});
+
+describe("ParticipantClient highlight", () => {
+  it("lights up while the host moves the phone, and gives up after a while", () => {
+    const t = setup();
+    t.client.start();
+    t.tick();
+    t.last().open();
+    t.last().receive(welcome());
+    t.last().receive({ type: "highlight", on: true });
+    expect(t.client.getSnapshot().highlighted).toBe(true);
+    t.last().receive({ type: "highlight", on: false });
+    expect(t.client.getSnapshot().highlighted).toBe(false);
+    // A host that never says "off" (it dropped out) can't leave it lit.
+    t.last().receive({ type: "highlight", on: true });
+    expect(t.tick()).toBe(HIGHLIGHT_MAX_MS);
+    expect(t.client.getSnapshot().highlighted).toBe(false);
   });
 });
 

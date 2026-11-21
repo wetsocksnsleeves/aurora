@@ -295,6 +295,27 @@
 
 /* -- Ready: solid green, so a phone held up reads from across the room -- */
 
+.moving {
+  --dim: rgb(255 255 255 / 0.9);
+  --faint: rgb(255 255 255 / 0.8);
+  --line: rgb(255 255 255 / 0.5);
+  background: #2d8bff;
+  animation: spot 0.7s ease-in-out infinite alternate;
+}
+
+@keyframes spot {
+  to {
+    background: #7cc0ff;
+  }
+}
+
+.movingNote {
+  margin: 12px 0 0;
+  font-size: 28px;
+  font-weight: 300;
+  text-align: center;
+}
+
 .ready {
   --dim: rgb(255 255 255 / 0.85);
   --faint: rgb(255 255 255 / 0.75);
