@@ -223,6 +223,52 @@ describe("participant states (SPEC 5.3)", () => {
   });
 });
 
+describe("stale schedules", () => {
+  /** A participant in standby at `seat`. */
+  function standbyAt(store: SessionStore, session: Session, seat: Point) {
+    const { participant } = store.join(session);
+    store.setSeat(session, participant.id, seat);
+    const { scheduleVersion } = store.markReady(session, participant.id);
+    store.setSchedule(
+      session,
+      participant.id,
+      scheduleFor(seat),
+      scheduleVersion,
+    );
+    return participant;
+  }
+
+  it("recompiles only connected phones when the crowd box moves", () => {
+    const { store, session } = setup();
+    const near = standbyAt(store, session, SEAT);
+    const far = standbyAt(store, session, { x: 0.95, y: 0.95 });
+    store.refitCrowd(session);
+
+    store.disconnect(session, far.id, far.connectionToken);
+    const stale = store.refitCrowd(session);
+
+    expect(stale.map((p) => p.id)).toEqual([near.id]);
+    expect(store.getParticipant(session, near.id).schedule).not.toBeNull();
+    expect(store.getParticipant(session, far.id).schedule).toBeNull();
+  });
+
+  it("drops a disconnected phone's schedule on a new show, for a fresh one on resume", () => {
+    const { store, session } = setup();
+    const kept = standbyAt(store, session, SEAT);
+    const gone = standbyAt(store, session, SEAT);
+    store.disconnect(session, gone.id, gone.connectionToken);
+    const versionBefore = gone.scheduleVersion;
+
+    const stale = store.setShow(session, TEST_SHOW);
+
+    expect(stale.map((p) => p.id)).toEqual([kept.id]);
+    const back = store.join(session, resumeOf(store, session, gone.id));
+    expect(back.resumed).toBe(true);
+    expect(back.participant.schedule).toBeNull();
+    expect(back.participant.scheduleVersion).toBe(versionBefore + 1);
+  });
+});
+
 describe("reconnect", () => {
   it("keeps the same participant, seat, ready state and schedule", () => {
     const { store, session } = setup();

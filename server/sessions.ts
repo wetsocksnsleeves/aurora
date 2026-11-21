@@ -541,11 +541,21 @@ export class SessionStore {
     p.scheduleVersion += 1;
   }
 
-  /** Bump every ready participant's schedule version, keeping the schedule. */
+  /**
+   * Every ready participant's schedule is out of date: bump the version so a
+   * compile already in flight is dropped. Connected participants are
+   * returned to recompile and keep the old schedule until the new one lands.
+   * Disconnected ones lose theirs instead and get a fresh one if they resume,
+   * so a crowd leaving at once (which refits the box) costs no compiles.
+   */
   private staleSchedules(session: Session): Participant[] {
     const stale: Participant[] = [];
     for (const p of session.participants.values()) {
       if (!p.readyTapped || !p.seat) continue;
+      if (!p.connected) {
+        this.invalidateSchedule(p);
+        continue;
+      }
       p.scheduleVersion += 1;
       stale.push(p);
     }
