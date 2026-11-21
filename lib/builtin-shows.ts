@@ -1,5 +1,5 @@
 import { DEVICE_TEST_SHOW } from "./device-test-show";
-import { PHONK_SHOW } from "./phonk-show";
+import { MIXTAPE_SHOW } from "./mixtape-show";
 import { TANDA_SHOW } from "./tanda-show";
 import { TEST_SHOW } from "./test-show";
 import type { Show } from "./types";
@@ -29,8 +29,8 @@ export const BUILTIN_SHOWS: readonly BuiltinShow[] = [
     clickTrack: true,
   },
   {
-    show: PHONK_SHOW,
-    note: "2KE, PHONK DA FAVELADA. Lights generated from the beat, with audio.",
+    show: MIXTAPE_SHOW,
+    note: "Poster boy, phonk and Reckless, 40 s each. Lights generated per song, with audio.",
     clickTrack: false,
   },
   {
