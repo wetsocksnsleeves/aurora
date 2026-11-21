@@ -23,6 +23,12 @@ export type AudioTags = {
   picture?: AudioPicture;
 };
 
+/**
+ * Longest title or artist kept; longer ones are cut with an ellipsis. Shows
+ * accept up to this many characters (`server/show-validation.ts`).
+ */
+export const MAX_TAG_TEXT = 200;
+
 export function readAudioTags(bytes: Uint8Array): AudioTags {
   try {
     if (ascii(bytes, 0, 3) === "ID3") return readId3v2(bytes, 0);
@@ -361,10 +367,17 @@ function picture(
 /** Collapse whitespace and drop control characters; undefined when blank. */
 function cleanText(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
-  const text = value
-    .replace(/[\u0000-\u001f\u007f﻿]/g, " ")
+  let text = value
+    .replace(/[\u0000-\u001f\u007f\ufeff]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+  if (text.length > MAX_TAG_TEXT) {
+    // Cut in UTF-16 units (what the server counts), never mid surrogate pair.
+    text = `${text
+      .slice(0, MAX_TAG_TEXT - 1)
+      .replace(/[\ud800-\udbff]$/, "")
+      .trimEnd()}…`;
+  }
   return text === "" ? undefined : text;
 }
 

@@ -55,8 +55,16 @@ async function lookUp(fileId: string): Promise<AudioTags> {
   return tags;
 }
 
+/** Bytes an entry holds: the picture, plus tag text (capped at MAX_TAG_TEXT) at 2 bytes a char. */
+function sizeOf(tags: AudioTags): number {
+  return (
+    (tags.picture?.data.length ?? 0) +
+    2 * ((tags.title?.length ?? 0) + (tags.artist?.length ?? 0))
+  );
+}
+
 function remember(fileId: string, tags: AudioTags): void {
-  const size = tags.picture?.data.length ?? 0;
+  const size = sizeOf(tags);
   // Evict the oldest entries until it fits, and cap the entry count too.
   while (
     cache.size > 0 &&
@@ -64,7 +72,7 @@ function remember(fileId: string, tags: AudioTags): void {
   ) {
     const [oldest, old] = cache.entries().next().value!;
     cache.delete(oldest);
-    cachedBytes -= old.picture?.data.length ?? 0;
+    cachedBytes -= sizeOf(old);
   }
   cache.set(fileId, tags);
   cachedBytes += size;

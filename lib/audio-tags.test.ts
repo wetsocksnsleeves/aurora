@@ -1,6 +1,11 @@
 import fs from "node:fs";
 import { describe, expect, it } from "vitest";
-import { readAudioTags, sniffImageType, titleFromFileName } from "./audio-tags";
+import {
+  MAX_TAG_TEXT,
+  readAudioTags,
+  sniffImageType,
+  titleFromFileName,
+} from "./audio-tags";
 
 const PNG = Uint8Array.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4,
@@ -191,6 +196,17 @@ describe("readAudioTags", () => {
       artist: "Wavy",
       picture: { mimeType: "image/png", data: PNG },
     });
+  });
+
+  it("cuts very long titles to MAX_TAG_TEXT characters", () => {
+    const tags = readAudioTags(
+      id3(3, [frame(3, "TIT2", cat([0], latin1("x".repeat(5000))))]),
+    );
+    expect(tags.title).toHaveLength(MAX_TAG_TEXT);
+    expect(tags.title?.endsWith("\u2026")).toBe(true);
+    expect(titleFromFileName(`${"y".repeat(300)}.mp3`)).toHaveLength(
+      MAX_TAG_TEXT,
+    );
   });
 
   it("returns nothing for untagged, truncated or junk bytes", () => {

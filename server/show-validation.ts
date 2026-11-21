@@ -9,6 +9,7 @@ import {
   type Show,
   type Venue,
 } from "@/lib/types";
+import { MAX_TAG_TEXT } from "@/lib/audio-tags";
 import { isAudioFileId } from "./audio-store";
 
 /** The parts of a show a client may write. The server owns id and timestamps. */
@@ -124,7 +125,7 @@ function parseAudio(value: unknown): Show["audio"] {
   return audio;
 }
 
-const MAX_AUDIO_LABEL = 200;
+const MAX_AUDIO_LABEL = MAX_TAG_TEXT;
 
 /** An optional track title or artist: trimmed, empty treated as absent. */
 function optionalLabel(value: unknown, at: string): string | undefined {
