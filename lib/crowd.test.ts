@@ -27,6 +27,16 @@ describe("crowdBox and fitToCrowd", () => {
     expect(fitToCrowd({ x: 0.3, y: 0.2 }, null)).toEqual({ x: 0.3, y: 0.2 });
   });
 
+  it("ignores a stray seat in a big crowd", () => {
+    const crowd = Array.from({ length: 50 }, (_, i) => ({
+      x: 0.4 + (i % 10) * 0.02,
+      y: 0.1 + Math.floor(i / 10) * 0.02,
+    }));
+    const box = crowdBox([...crowd, { x: 1, y: 1 }])!;
+    expect(box.maxX).toBeLessThan(0.62);
+    expect(box.maxY).toBeLessThan(0.2);
+  });
+
   it("clamps a seat outside the box to its edge", () => {
     const box = { minX: 0, minY: 0, maxX: 0.5, maxY: 0.5 };
     expect(fitToCrowd({ x: 0.9, y: -0.1 }, box)).toEqual({ x: 1, y: 0 });

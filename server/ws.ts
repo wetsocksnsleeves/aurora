@@ -135,6 +135,11 @@ export type AttachOptions = {
   fitCrowd?: boolean;
   /** Delay before refitting the crowd box after seats change. Default 500 ms. */
   refitDelayMs?: number;
+  /**
+   * Minimum time between refits of one session, each of which can recompile
+   * every phone. Default 3 s, so seat spam can't keep the server compiling.
+   */
+  refitIntervalMs?: number;
   /** Defaults to `PARTICIPANTS_THROTTLE_MS`. */
   participantsThrottleMs?: number;
   /** How often to drop participants disconnected for 60 s. Default 5 s. */
@@ -261,7 +266,10 @@ export class WsRouter {
     string,
     ReturnType<typeof setTimeout>
   >();
+  /** When each session last refitted (wall clock). */
+  private readonly lastRefit = new Map<string, number>();
   private readonly refitDelayMs: number;
+  private readonly refitIntervalMs: number;
   /** The current socket of each participant id. */
   private readonly participantSockets = new Map<string, Connection>();
   private readonly participantsThrottle = new Map<
@@ -278,6 +286,7 @@ export class WsRouter {
     this.computeSchedule = options.computeSchedule ?? defaultComputeSchedule;
     this.resolveShow = options.resolveShow ?? defaultResolveShow;
     this.refitDelayMs = options.refitDelayMs ?? 500;
+    this.refitIntervalMs = options.refitIntervalMs ?? 3_000;
     this.throttleMs =
       options.participantsThrottleMs ?? PARTICIPANTS_THROTTLE_MS;
     this.startLeadMs = options.startLeadMs ?? startLeadMsFromEnv();
@@ -568,8 +577,11 @@ export class WsRouter {
   private onSeat(conn: Connection, msg: MessageOfType<ClientMessage, "seat">) {
     const { session, participant } = this.requireParticipant(conn);
     this.store.setSeat(session, participant.id, { x: msg.x, y: msg.y });
-    if (participant.readyTapped) void this.updateSchedule(session, participant);
-    this.scheduleRefit(session);
+    // Only Ready phones shape the crowd, so only they trigger a refit.
+    if (participant.readyTapped) {
+      void this.updateSchedule(session, participant);
+      this.scheduleRefit(session);
+    }
     this.notifyParticipantsChanged(session);
   }
 
@@ -577,6 +589,7 @@ export class WsRouter {
     const { session, participant } = this.requireParticipant(conn);
     this.store.markReady(session, participant.id);
     void this.updateSchedule(session, participant);
+    this.scheduleRefit(session);
     this.notifyParticipantsChanged(session);
   }
 
@@ -594,7 +607,12 @@ export class WsRouter {
       if (!show) {
         throw new SessionError("unknown-show", `no show "${msg.showId}"`);
       }
-      session = this.store.createSession(show);
+      // Skip codes a stored room still owns, so rooms never share a code.
+      session = this.store.createSession(
+        show,
+        undefined,
+        (code) => this.options.rooms?.load(code) != null,
+      );
       created = true;
       this.saveRoom(session);
     } else {
@@ -711,16 +729,20 @@ export class WsRouter {
 
   /**
    * Refit the crowd box a moment after seats change (a burst of joins
-   * becomes one refit), and recompile everyone if it moved.
+   * becomes one refit), at most once per `refitIntervalMs`, and recompile
+   * everyone if it moved.
    */
   private scheduleRefit(session: Session): void {
     if (!this.options.fitCrowd || this.refitTimers.has(session.code)) return;
+    const since = Date.now() - (this.lastRefit.get(session.code) ?? -Infinity);
+    const wait = Math.max(this.refitDelayMs, this.refitIntervalMs - since);
     const timer = setTimeout(() => {
       this.refitTimers.delete(session.code);
+      this.lastRefit.set(session.code, Date.now());
       const stale = this.store.refitCrowd(session);
       for (const p of stale) void this.updateSchedule(session, p);
       if (stale.length) this.notifyParticipantsChanged(session);
-    }, this.refitDelayMs);
+    }, wait);
     timer.unref?.();
     this.refitTimers.set(session.code, timer);
   }

@@ -75,6 +75,18 @@ describe("join codes", () => {
     expect(b.code).toBe("BBBBBB");
   });
 
+  it("skip codes a stored room owns", () => {
+    const values = [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1];
+    let i = 0;
+    const store = new SessionStore({ randomInt: () => values[i++] ?? 2 });
+    const session = store.createSession(
+      TEST_SHOW,
+      undefined,
+      (code) => code === "AAAAAA",
+    );
+    expect(session.code).toBe("BBBBBB");
+  });
+
   it("look up case-insensitively", () => {
     const { store, session } = setup();
     expect(store.getSession(session.code.toLowerCase())).toBe(session);

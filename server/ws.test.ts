@@ -872,7 +872,11 @@ describe("rooms (SPEC 2.5)", () => {
   });
 
   it("fits the show to the crowd", async () => {
-    const { url, store } = await listen({ fitCrowd: true, refitDelayMs: 20 });
+    const { url, store } = await listen({
+      fitCrowd: true,
+      refitDelayMs: 20,
+      refitIntervalMs: 0,
+    });
     const { host, code } = await hostSession(url);
     const left = await standbyPhone(url, code, 0.45);
     const right = await standbyPhone(url, code, 0.55);

@@ -21,19 +21,24 @@ const PADDING = 0.06;
 /** Smallest box side, so one phone (or a tight cluster) doesn't blow up. */
 const MIN_SIDE = 0.01;
 
-/** The box around `seats`, padded; null with no seats. */
+/** With this many seats or more, the outermost 2% each side are ignored. */
+const TRIM_FROM = 20;
+const TRIM = 0.02;
+
+/**
+ * The box around `seats`, padded; null with no seats. In a large crowd the
+ * most extreme seats are left out, so one stray (or spoofed) position can't
+ * stretch everyone's show.
+ */
 export function crowdBox(seats: readonly Point[]): CrowdBox | null {
   if (!seats.length) return null;
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const s of seats) {
-    minX = Math.min(minX, s.x);
-    minY = Math.min(minY, s.y);
-    maxX = Math.max(maxX, s.x);
-    maxY = Math.max(maxY, s.y);
-  }
+  const xs = seats.map((s) => s.x).sort((a, b) => a - b);
+  const ys = seats.map((s) => s.y).sort((a, b) => a - b);
+  const cut = seats.length >= TRIM_FROM ? Math.floor(seats.length * TRIM) : 0;
+  const minX = xs[cut]!;
+  const maxX = xs[xs.length - 1 - cut]!;
+  const minY = ys[cut]!;
+  const maxY = ys[ys.length - 1 - cut]!;
   const grow = (lo: number, hi: number): [number, number] => {
     const side = Math.max(hi - lo, MIN_SIDE);
     const mid = (lo + hi) / 2;

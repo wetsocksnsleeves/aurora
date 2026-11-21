@@ -214,11 +214,16 @@ export class SessionStore {
    * Create a session for a snapshot of `show` with a fresh join code, or
    * bring back a stored room with its own code and host token.
    */
-  createSession(show: Show, restore?: RestoredRoom): Session {
+  createSession(
+    show: Show,
+    restore?: RestoredRoom,
+    /** Codes already taken elsewhere, e.g. by a stored room not loaded yet. */
+    taken: (code: string) => boolean = () => false,
+  ): Session {
     let code = restore ? normalizeJoinCode(restore.code) : "";
     if (!restore) {
-      code = generateJoinCode(this.randomInt);
-      while (this.sessions.has(code)) code = generateJoinCode(this.randomInt);
+      do code = generateJoinCode(this.randomInt);
+      while (this.sessions.has(code) || taken(code));
     }
     const session: Session = {
       code,
@@ -427,15 +432,16 @@ export class SessionStore {
   }
 
   /**
-   * Refit the crowd box to the connected, seated participants. Returns the
-   * participants to recompile when the box moved enough to matter, else [].
-   * Does nothing while a show plays, so the show keeps its shape.
+   * Refit the crowd box to the connected participants who tapped Ready.
+   * Returns the participants to recompile when the box moved enough to
+   * matter, else []. Does nothing while a show plays, so the show keeps its
+   * shape.
    */
   refitCrowd(session: Session): Participant[] {
     if (session.T0 !== null) return [];
     const seats: Point[] = [];
     for (const p of session.participants.values()) {
-      if (p.connected && p.seat) seats.push(p.seat);
+      if (p.connected && p.readyTapped && p.seat) seats.push(p.seat);
     }
     const next = crowdBox(seats);
     if (!boxChanged(session.crowd, next)) return [];
