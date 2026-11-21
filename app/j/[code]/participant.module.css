@@ -1,121 +1,384 @@
-.page {
+/*
+ * Participant pages in the big screen's language: pure black, light type,
+ * spaced capitals, rounded-square LED pixels and the rainbow wordmark.
+ */
+
+.shell {
+  --fg: #f5f5f7;
+  --dim: rgb(255 255 255 / 0.56);
+  --faint: rgb(255 255 255 / 0.32);
+  --line: rgb(255 255 255 / 0.14);
+  --lit: #4ade80;
+  --rainbow: linear-gradient(
+    90deg,
+    #ff5f8f,
+    #ffb347,
+    #ffe66d,
+    #6dffb0,
+    #6dd5ff,
+    #b98bff,
+    #ff5f8f
+  );
   min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: max(1.25rem, env(safe-area-inset-top)) 1.5rem
+    max(1.5rem, env(safe-area-inset-bottom));
+  background: #000;
+  color: var(--fg);
+  font-weight: 300;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.wordmark {
+  font-size: 1.35rem;
+  letter-spacing: -0.03em;
+  background: var(--rainbow);
+  background-size: 300% 100%;
+  background-clip: text;
+  color: transparent;
+  animation: flow 12s linear infinite;
+}
+
+@keyframes flow {
+  to {
+    background-position: 300% 0;
+  }
+}
+
+.content {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.75rem;
-  padding: 1.25rem;
+  gap: 1rem;
   text-align: center;
-  background: #000;
-  color: #fff;
+  padding: 1.5rem 0;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: 100%;
+  max-width: 26rem;
+  margin: 0 auto;
+}
+
+.label {
+  margin: 0;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--dim);
 }
 
 .title {
   margin: 0;
-  font-size: 1.5rem;
+  font-size: 2.1rem;
+  font-weight: 300;
+  letter-spacing: -0.01em;
 }
 
-.bigTitle {
+.hero {
   margin: 0;
-  font-size: 2.75rem;
-  letter-spacing: 0.01em;
+  font-size: 3.2rem;
+  font-weight: 300;
+  letter-spacing: -0.02em;
 }
 
 .text {
   margin: 0;
-  max-width: 28rem;
-  color: rgb(255 255 255 / 0.8);
-  line-height: 1.4;
+  max-width: 22rem;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--dim);
 }
 
-.hint {
+.hint,
+.fine {
   margin: 0;
-  max-width: 28rem;
-  font-size: 0.9rem;
-  color: rgb(255 255 255 / 0.75);
+  max-width: 22rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--faint);
 }
 
-/* Seat picker: header, map filling the middle, Ready at the bottom. */
-.picker {
-  justify-content: space-between;
-  padding-top: max(1.25rem, env(safe-area-inset-top));
-  padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
+.primary,
+.secondary {
+  width: 100%;
+  min-height: 3.25rem;
+  border-radius: 0.75rem;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  touch-action: manipulation;
+  transition:
+    opacity 0.2s,
+    background 0.2s;
 }
 
-.header {
+.primary {
+  border: 0;
+  background: #fff;
+  color: #000;
+}
+
+.primary:disabled {
+  opacity: 0.25;
+}
+
+.secondary {
+  border: 1px solid var(--line);
+  background: rgb(255 255 255 / 0.04);
+  color: var(--fg);
+}
+
+/* -- Loading: LED pixels lighting in turn -------------------------------- */
+
+.loader {
   display: flex;
-  flex-direction: column;
   gap: 0.4rem;
 }
 
-.map {
-  flex: 1;
+.loader > i {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 0.2rem;
+  background: rgb(255 255 255 / 0.08);
+  animation: led 1.2s ease-in-out infinite;
+}
+
+@keyframes led {
+  0%,
+  60%,
+  100% {
+    background: rgb(255 255 255 / 0.08);
+    box-shadow: none;
+  }
+  20% {
+    background: #fff;
+    box-shadow: 0 0 0.8rem rgb(255 255 255 / 0.6);
+  }
+}
+
+/* -- Room view: LED floor in perspective, screen at the far edge --------- */
+
+.room {
   width: 100%;
-  min-height: 0;
+  max-width: 22rem;
+  height: min(15rem, 32dvh);
+  perspective: 30rem;
+  perspective-origin: 50% 0%;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.floor {
+  position: relative;
+  width: 62%;
+  aspect-ratio: 1;
+  margin-top: 3.2rem;
+  transform: rotateX(62deg);
+  transform-origin: 50% 0%;
+  transform-style: preserve-3d;
+  border-radius: 0.6rem;
+  background: linear-gradient(
+    to bottom,
+    rgb(255 255 255 / 0.07),
+    rgb(255 255 255 / 0.015)
+  );
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+/* Stands up from the floor's far edge: its bottom edge sits on the floor. */
+.screenSlab {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  aspect-ratio: 16 / 9;
+  transform: translateX(-50%) rotateX(-90deg);
+  transform-origin: 50% 100%;
+  border-radius: 0.3rem;
+  background: #fff;
+  box-shadow:
+    0 0 2rem rgb(255 255 255 / 0.45),
+    0 0 0.4rem rgb(255 255 255 / 0.8);
+}
+
+.you {
+  position: absolute;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+}
+
+.youPixel,
+.youPulse {
+  position: absolute;
+  left: -0.55rem;
+  top: -0.55rem;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 0.3rem;
+}
+
+.youPixel {
+  background: var(--lit);
+  box-shadow: 0 0 1.2rem rgb(74 222 128 / 0.9);
+}
+
+.youPulse {
+  border: 2px solid var(--lit);
+  animation: pulse 2s ease-out infinite;
+}
+
+@keyframes pulse {
+  from {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(3);
+    opacity: 0;
+  }
+}
+
+.youBeam {
+  position: absolute;
+  left: -1px;
+  bottom: 0;
+  width: 2px;
+  height: 3.5rem;
+  transform: rotateX(-90deg);
+  transform-origin: 50% 100%;
+  background: linear-gradient(to top, transparent, var(--lit));
+}
+
+.stats {
+  display: flex;
+  gap: 2.5rem;
   justify-content: center;
 }
 
-.map > svg {
-  max-height: 60dvh;
-  width: auto;
-  max-width: 100%;
-  aspect-ratio: 1;
-}
-
-.footer {
-  width: 100%;
-  max-width: 28rem;
+.stat {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  align-items: center;
+  gap: 0.3rem;
 }
 
-.button {
-  width: 100%;
-  padding: 1rem;
-  border: 0;
-  border-radius: 0.75rem;
-  background: var(--accent);
-  color: #04130d;
-  font: inherit;
-  font-size: 1.25rem;
-  font-weight: 600;
-  touch-action: manipulation;
+.statValue {
+  margin: 0;
+  font-size: 3rem;
+  font-weight: 300;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
-.button:disabled {
-  background: rgb(255 255 255 / 0.15);
-  color: rgb(255 255 255 / 0.5);
+.statUnit {
+  margin-left: 0.2rem;
+  font-size: 1.1rem;
+  color: var(--dim);
 }
 
-.linkButton {
-  margin-top: 1.5rem;
-  padding: 0.5rem 1rem;
-  border: 1px solid rgb(255 255 255 / 0.5);
-  border-radius: 999px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 0.9rem;
-}
+/* -- Ready: solid green, so a phone held up reads from across the room -- */
 
-.syncing {
-  background: #0b1f4d;
-}
-
-.standby {
+.ready {
+  --dim: rgb(255 255 255 / 0.85);
+  --faint: rgb(255 255 255 / 0.75);
+  --line: rgb(255 255 255 / 0.45);
   background: #16a34a;
 }
 
-.standby .text,
-.standby .hint {
+.ready .wordmark {
+  background: none;
   color: #fff;
+  animation: none;
 }
 
-/* Full-viewport colour fill for the show; Playback sets the colour. */
+.ready .secondary {
+  background: rgb(0 0 0 / 0.12);
+}
+
+.readyMark {
+  display: grid;
+  grid-template-columns: repeat(3, 1.4rem);
+  gap: 0.35rem;
+  margin-bottom: 0.5rem;
+}
+
+.readyMark > i {
+  aspect-ratio: 1;
+  border-radius: 0.35rem;
+  background: #fff;
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+.readyMark > i:nth-child(2n) {
+  animation-delay: 0.4s;
+}
+
+@keyframes breathe {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* Three numbered steps on a card. */
+.steps {
+  counter-reset: step;
+  list-style: none;
+  width: 100%;
+  max-width: 22rem;
+  margin: 0.5rem 0 0;
+  padding: 0.4rem 1.1rem;
+  border-radius: 1rem;
+  background: rgb(0 0 0 / 0.16);
+  text-align: left;
+}
+
+.steps > li {
+  counter-increment: step;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.85rem 0;
+  font-size: 1.05rem;
+  font-weight: 400;
+}
+
+.steps > li + li {
+  border-top: 1px solid rgb(255 255 255 / 0.22);
+}
+
+.steps > li::before {
+  content: counter(step);
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #15803d;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+/* -- Show: full-viewport colour; Playback sets it ------------------------ */
+
 .playing {
   position: fixed;
   inset: 0;
@@ -123,29 +386,13 @@
   cursor: none;
 }
 
-.spinner {
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 50%;
-  border: 4px solid rgb(255 255 255 / 0.25);
-  border-top-color: #fff;
-  animation: spin 0.9s linear infinite;
-}
+/* -- Camera scanner ------------------------------------------------------- */
 
-@keyframes spin {
-  to {
-    transform: rotate(1turn);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .spinner {
-    animation-duration: 3s;
-  }
-}
-
-/* Camera seat finder (SPEC 2.4): live camera with what the detector sees. */
 .scanner {
+  --dim: rgb(255 255 255 / 0.6);
+  --line: rgb(255 255 255 / 0.2);
+  --fg: #fff;
+  --lit: #4ade80;
   position: fixed;
   inset: 0;
   background: #000;
@@ -161,6 +408,86 @@
   object-fit: cover;
 }
 
+/* Rounded corner brackets, like the anchors. */
+.viewfinder {
+  position: absolute;
+  inset: 14% 8% 34%;
+  pointer-events: none;
+}
+
+.viewfinder > i {
+  position: absolute;
+  width: 2.2rem;
+  height: 2.2rem;
+  border: 2px solid rgb(255 255 255 / 0.85);
+}
+
+.viewfinder > i:nth-child(1) {
+  top: 0;
+  left: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-top-left-radius: 0.8rem;
+}
+
+.viewfinder > i:nth-child(2) {
+  top: 0;
+  right: 0;
+  border-left: 0;
+  border-bottom: 0;
+  border-top-right-radius: 0.8rem;
+}
+
+.viewfinder > i:nth-child(3) {
+  bottom: 0;
+  right: 0;
+  border-left: 0;
+  border-top: 0;
+  border-bottom-right-radius: 0.8rem;
+}
+
+.viewfinder > i:nth-child(4) {
+  bottom: 0;
+  left: 0;
+  border-right: 0;
+  border-top: 0;
+  border-bottom-left-radius: 0.8rem;
+}
+
+/* Which way to turn the phone, in the middle of the view. */
+.turnArrow {
+  position: absolute;
+  left: 50%;
+  top: 24%;
+  display: grid;
+  place-items: center;
+  width: 5.5rem;
+  height: 5.5rem;
+  border-radius: 1.6rem;
+  transform: translate(-50%, -50%);
+  background: rgb(0 0 0 / 0.55);
+  backdrop-filter: blur(8px);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.18);
+  pointer-events: none;
+}
+
+.turnArrow > svg {
+  width: 3rem;
+  height: 3rem;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 4.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  animation: nudge 1.2s ease-in-out infinite;
+}
+
+@keyframes nudge {
+  50% {
+    translate: 0.35rem 0;
+  }
+}
+
 .scanHud {
   position: absolute;
   left: 0;
@@ -169,24 +496,25 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.75rem;
-  padding: 1.25rem 1.25rem max(1.25rem, env(safe-area-inset-bottom));
-  background: linear-gradient(transparent, rgb(0 0 0 / 0.8) 40%);
+  gap: 0.8rem;
+  padding: 2.5rem 1.5rem max(1.5rem, env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, rgb(0 0 0 / 0.85) 35%);
   text-align: center;
+  font-weight: 300;
 }
 
 .scanMessage {
   margin: 0;
-  max-width: 28rem;
-  font-size: 1.15rem;
-  font-weight: 600;
+  max-width: 24rem;
+  font-size: 1.2rem;
+  font-weight: 300;
 }
 
 .progress {
   width: 100%;
-  max-width: 28rem;
-  height: 6px;
-  border-radius: 3px;
+  max-width: 24rem;
+  height: 3px;
+  border-radius: 2px;
   background: rgb(255 255 255 / 0.15);
   overflow: hidden;
 }
@@ -194,38 +522,29 @@
 .progress > i {
   display: block;
   height: 100%;
-  background: var(--accent);
+  background: #fff;
   transition: width 0.15s;
 }
 
-.sweepHint {
-  font-size: 2rem;
-  color: var(--accent);
-  animation: sway 2.4s ease-in-out infinite;
+.scanStep {
+  margin: 0;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--dim);
 }
 
-@keyframes sway {
-  0%,
-  100% {
-    transform: translateX(-40px);
+.scanHud .secondary {
+  max-width: 24rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wordmark,
+  .loader > i,
+  .youPulse,
+  .readyMark > i,
+  .turnArrow > svg {
+    animation: none;
   }
-  50% {
-    transform: translateX(40px);
-  }
-}
-
-.scanHud .linkButton {
-  margin-top: 0;
-}
-
-.secondaryButton {
-  width: 100%;
-  padding: 0.85rem;
-  border: 1px solid rgb(255 255 255 / 0.4);
-  border-radius: 0.75rem;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 1rem;
-  touch-action: manipulation;
 }
