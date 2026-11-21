@@ -42,7 +42,7 @@ import {
 } from "@/lib/builtin-shows";
 import { showDurationMs } from "@/lib/compile";
 import { countByState } from "@/lib/host-map";
-import { TARGET_SHARE_OF_SCREEN } from "@/lib/positioning/seat";
+import { screenFromConfig } from "@/lib/positioning/seat";
 import type { SessionMessage } from "@/lib/protocol";
 import { Coach } from "./Coach";
 import { CrowdCanvas } from "./CrowdCanvas";
@@ -363,7 +363,7 @@ function Studio({
   const inRoom = counts.total - counts.disconnected;
   const drawing = DRAWING_TOOLS.has(tool);
   // The screen to scale: its real width against the room's.
-  const screenM = session.positioning.targetWidthM / TARGET_SHARE_OF_SCREEN;
+  const screenM = screenFromConfig(session.positioning).widthM;
   const room = snapshot.room;
   const screenShare = room
     ? Math.min(1, Math.max(0.02, screenM / room.widthM))

@@ -581,11 +581,19 @@ function positioningConfig(value: unknown): PositioningConfig {
   if (!isRecord(value)) {
     throw new InvalidMessage("positioning `config` must be an object");
   }
-  return {
+  const config: PositioningConfig = {
     targetWidthM: metres(value, "targetWidthM"),
     venueWidthM: metres(value, "venueWidthM"),
     venueDepthM: metres(value, "venueDepthM"),
   };
+  if (value.screen !== undefined && value.screen !== null) {
+    const screen = rec(value, "screen");
+    config.screen = {
+      widthM: metres(screen, "widthM"),
+      heightM: metres(screen, "heightM"),
+    };
+  }
+  return config;
 }
 
 function point(value: unknown): Point {

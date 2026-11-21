@@ -196,6 +196,15 @@ describe("parseServerMessage", () => {
         config: { targetWidthM: 3, venueWidthM: 20, venueDepthM: 20 },
       },
       {
+        type: "positioning",
+        config: {
+          targetWidthM: 1.5,
+          venueWidthM: 20,
+          venueDepthM: 20,
+          screen: { widthM: 2, heightM: 1.5 },
+        },
+      },
+      {
         type: "session",
         code: "ABCDEF",
         joinUrl: "https://x.example/j/ABCDEF",
