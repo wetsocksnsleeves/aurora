@@ -58,6 +58,11 @@ export type Participant = {
   /** Derived. Do not set directly; call a store method. */
   state: ParticipantState;
   seat: Point | null;
+  /**
+   * Where the host put this participant, in show coordinates (already
+   * fitted). Wins over `seat` until the phone finds its seat again.
+   */
+  placed: Point | null;
   /** The participant tapped Ready. Survives reconnects. */
   readyTapped: boolean;
   /** The last schedule computed for the current seat, or null if pending. */
@@ -305,6 +310,7 @@ export class SessionStore {
       resumeToken: this.newResumeToken(),
       state: "connected",
       seat: null,
+      placed: null,
       readyTapped: false,
       schedule: null,
       scheduleVersion: 0,
@@ -334,6 +340,7 @@ export class SessionStore {
   setSeat(session: Session, id: string, seat: Point): Participant {
     const p = this.getParticipant(session, id);
     p.seat = { x: seat.x, y: seat.y };
+    p.placed = null;
     if (p.readyTapped) this.invalidateSchedule(p);
     this.refresh(session, p);
     return p;
@@ -448,7 +455,11 @@ export class SessionStore {
     if (session.T0 !== null) return [];
     const seats: Point[] = [];
     for (const p of session.participants.values()) {
-      if (p.connected && p.readyTapped && p.seat) seats.push(p.seat);
+      // Placed participants are where the host wants them, not where the
+      // crowd is.
+      if (p.connected && p.readyTapped && p.seat && !p.placed) {
+        seats.push(p.seat);
+      }
     }
     const next = crowdBox(seats, minimumRoom(session.positioning));
     if (!boxChanged(session.crowd, next)) return [];
@@ -456,9 +467,25 @@ export class SessionStore {
     return this.staleSchedules(session);
   }
 
-  /** A participant's seat in show coordinates: fitted to the crowd. */
+  /** A participant's seat in show coordinates: placed, or fitted to the crowd. */
   showSeat(session: Session, p: Participant): Point | null {
+    if (p.placed) return p.placed;
     return p.seat ? fitToCrowd(p.seat, session.crowd) : null;
+  }
+
+  /**
+   * The host moved a participant to `point` (show coordinates). Needs a
+   * seat: a phone that hasn't found one yet can't be placed.
+   */
+  place(session: Session, id: string, point: Point): Participant {
+    const p = this.getParticipant(session, id);
+    if (!p.seat) {
+      throw new SessionError("no-seat", "that phone has no seat yet");
+    }
+    p.placed = { x: point.x, y: point.y };
+    if (p.readyTapped) this.invalidateSchedule(p);
+    this.refresh(session, p);
+    return p;
   }
 
   /** Show starts at `T0` (server clock). Standby participants become playing. */

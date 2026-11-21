@@ -12,10 +12,52 @@ export type VenueShape = { id: string; points: Point[] };
 /** The outline of the seating area, drawn by the host. */
 export type Venue = { shapes: VenueShape[] };
 
+/** Which way an effect travels. "up" is towards the screen. */
+export type Direction = "left" | "right" | "up" | "down";
+
+/** Built-in effects worked out per seat (`lib/patterns.ts`). */
+export type PatternKind = "wave" | "split" | "chase" | "sparkle";
+
+export const PATTERN_KINDS: readonly PatternKind[] = [
+  "wave",
+  "split",
+  "chase",
+  "sparkle",
+];
+
+export type PatternShape = {
+  kind: "pattern";
+  pattern: PatternKind;
+  direction: Direction;
+  /** 0..1: band width (wave, split), column width (chase), density (sparkle). */
+  size: number;
+  /** Ms per step (chase) or per twinkle (sparkle). */
+  stepMs: number;
+  /**
+   * The part of the movement this clip plays, 0..1 over its length (wave,
+   * split). A split clip keeps moving from where the first half stopped.
+   */
+  from: number;
+  to: number;
+};
+
 export type ClipShape =
   | { kind: "fill" }
   /** `moveTo` is the offset at `endMs`, interpolated linearly from `startMs`. */
-  | { kind: "polygon"; points: Point[]; moveTo?: Point };
+  | { kind: "polygon"; points: Point[]; moveTo?: Point }
+  | PatternShape;
+
+/**
+ * Switch a clip on and off. Phase follows show time, so a blink every beat
+ * stays on the beat wherever the clip starts.
+ */
+export type Blink = {
+  periodMs: number;
+  /** Share of each period that is on (hard blink). */
+  duty: number;
+  /** Soft: a pulse that hits at the start of each period and fades out. */
+  soft: boolean;
+};
 
 /** One drawn shape on the timeline. */
 export type Clip = {
@@ -29,6 +71,9 @@ export type Clip = {
   fadeInMs: number;
   fadeOutMs: number;
   shape: ClipShape;
+  blink?: Blink;
+  /** Name on the timeline, e.g. "Strobe". Defaults from the shape. */
+  label?: string;
 };
 
 export type Show = {

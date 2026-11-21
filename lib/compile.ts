@@ -1,6 +1,7 @@
 // Schedule compiler (SPEC 3.3). Pure: no Node or browser globals, so the
 // server worker, the editor preview and the test harness all share it.
 
+import { blinkLevel, patternLevel } from "./patterns";
 import type { Clip, Point, Schedule, Show, Venue } from "./types";
 
 /** Sampling interval of the compiler (50 Hz). */
@@ -63,13 +64,18 @@ export function colorAt(show: Show, seat: Point, tMs: number): string {
   // host map call this for every dot on every frame.
   const p = snapSeatToVenue(show.venue, seat);
   let top: Clip | null = null;
+  let topLevel = 0;
   for (const clip of show.clips) {
     if (!isActive(clip, tMs)) continue;
     // On equal layers the later clip draws on top.
     if (top && clip.layer < top.layer) continue;
-    if (covers(clip, p, tMs)) top = clip;
+    const level = coverage(clip, p, tMs);
+    if (level > 0) {
+      top = clip;
+      topLevel = level;
+    }
   }
-  return top ? shade(parseColor(top.color), top, tMs) : BLACK;
+  return top ? shade(parseColor(top.color), top, tMs, topLevel) : BLACK;
 }
 
 /**
@@ -163,14 +169,14 @@ function prepareClips(show: Show): PreparedClip[] {
 function sample(clips: PreparedClip[], p: Point, tMs: number): string {
   for (const c of clips) {
     if (!isActive(c.clip, tMs)) continue;
-    let hit: boolean;
-    if (isMoving(c.clip)) {
-      hit = covers(c.clip, p, tMs);
+    let level: number;
+    if (isStatic(c.clip)) {
+      c.staticHit ??= coverage(c.clip, p, tMs) > 0;
+      level = c.staticHit ? onLevel(c.clip, tMs) : 0;
     } else {
-      c.staticHit ??= covers(c.clip, p, tMs);
-      hit = c.staticHit;
+      level = coverage(c.clip, p, tMs);
     }
-    if (hit) return shade(c.rgb, c.clip, tMs);
+    if (level > 0) return shade(c.rgb, c.clip, tMs, level);
   }
   return BLACK;
 }
@@ -179,30 +185,50 @@ function isActive(clip: Clip, tMs: number): boolean {
   return tMs >= clip.startMs && tMs < clip.endMs;
 }
 
-function isMoving(clip: Clip): boolean {
-  const move = clip.shape.kind === "polygon" ? clip.shape.moveTo : undefined;
-  return !!move && (move.x !== 0 || move.y !== 0);
-}
-
-/** Whether `clip`, positioned as at `tMs`, covers seat `p`. */
-function covers(clip: Clip, p: Point, tMs: number): boolean {
+/** A fill or a polygon that doesn't move: whether it covers a seat never changes. */
+function isStatic(clip: Clip): boolean {
   const shape = clip.shape;
   if (shape.kind === "fill") return true;
+  if (shape.kind === "pattern") return false;
+  const move = shape.moveTo;
+  return !move || (move.x === 0 && move.y === 0);
+}
+
+/** The blink's level, or 1 for a clip that doesn't blink. */
+function onLevel(clip: Clip, tMs: number): number {
+  return clip.blink ? blinkLevel(clip.blink, tMs) : 1;
+}
+
+/**
+ * How strongly `clip`, as at `tMs`, lights seat `p`, 0..1 before fades.
+ * 0 means it doesn't cover the seat (a blink that is off, or a pattern that
+ * isn't there), so a clip below shows through.
+ */
+export function coverage(clip: Clip, p: Point, tMs: number): number {
+  const on = onLevel(clip, tMs);
+  if (on <= 0) return 0;
+  const shape = clip.shape;
+  if (shape.kind === "fill") return on;
+  const progress = (tMs - clip.startMs) / (clip.endMs - clip.startMs);
+  if (shape.kind === "pattern") {
+    return on * patternLevel(shape, p, progress, tMs);
+  }
   const move = shape.moveTo;
   if (!move || (move.x === 0 && move.y === 0)) {
-    return pointInPolygon(p, shape.points);
+    return pointInPolygon(p, shape.points) ? on : 0;
   }
   // Offsetting the polygon by d is the same as testing p - d against the
   // original polygon, which avoids allocating a moved copy.
-  const progress = (tMs - clip.startMs) / (clip.endMs - clip.startMs);
   return pointInPolygon(
     { x: p.x - move.x * progress, y: p.y - move.y * progress },
     shape.points,
-  );
+  )
+    ? on
+    : 0;
 }
 
-function shade(rgb: Rgb, clip: Clip, tMs: number): string {
-  return scaleColor(rgb, fadeEnvelope(clip, tMs));
+function shade(rgb: Rgb, clip: Clip, tMs: number, level: number): string {
+  return scaleColor(rgb, fadeEnvelope(clip, tMs) * level);
 }
 
 /** Parses `#rgb` or `#rrggbb`. Anything else is treated as black. */

@@ -50,7 +50,8 @@ describe("/api/shows", () => {
     const show = await create();
     expect(show.name).toBe("Untitled show");
     expect(show.venue).toEqual({ shapes: [] });
-    expect(show.audio).toEqual({ fileId: "", durationMs: 0 });
+    // No music yet, but a 30 s length to put clips in.
+    expect(show.audio).toEqual({ fileId: "", durationMs: 30_000 });
     expect(show.clips).toEqual([]);
     expect(show.createdAt).toBe(show.updatedAt);
   });
@@ -107,7 +108,7 @@ describe("/api/shows", () => {
     const { shows } = (await res.json()) as { shows: ShowSummary[] };
     const byId = new Map(shows.map((s) => [s.id, s]));
     expect(byId.get(empty.id)).toMatchObject({
-      durationMs: 0,
+      durationMs: 30_000,
       hasAudio: false,
     });
     expect(byId.get(withAudio.id)).toMatchObject({

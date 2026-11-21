@@ -918,6 +918,31 @@ describe("rooms (SPEC 2.5)", () => {
     });
   });
 
+  it("lets the host drag a phone somewhere else until it rescans", async () => {
+    const { url, store } = await listen({ fitCrowd: true, refitDelayMs: 20 });
+    const { host, code } = await hostSession(url);
+    const { phone, id } = await standbyPhone(url, code, 0.45);
+    const session = store.getSession(code)!;
+    host.send({ type: "place", participantId: id, x: 0.9, y: 0.2 });
+    await vi.waitFor(() =>
+      expect(store.summaries(session)[0]).toMatchObject({ x: 0.9, y: 0.2 }),
+    );
+    // Recompiled for the new spot.
+    await vi.waitFor(() =>
+      expect(phone.all("schedule").at(-1)!.events).toEqual(
+        compileSchedule(TEST_SHOW, { x: 0.9, y: 0.2 }).events,
+      ),
+    );
+    // Phones can't move each other.
+    phone.send({ type: "place", participantId: id, x: 0.1, y: 0.1 });
+    expect((await phone.next("error")).reason).toBe("not-host");
+    // Finding its seat again undoes the drag.
+    phone.send({ type: "seat", x: 0.45, y: 0.5 });
+    await vi.waitFor(() =>
+      expect(store.summaries(session)[0]!.x).not.toBe(0.9),
+    );
+  });
+
   it("brings a stored room back after a restart, with its code and host token", async () => {
     const saved = new Map<string, RoomRecord>();
     const rooms = {

@@ -78,6 +78,7 @@ describe("parseClientMessage", () => {
         config: { targetWidthM: 4.2, venueWidthM: 30, venueDepthM: 25 },
       },
       { type: "load", showId: "show-1" },
+      { type: "place", participantId: "p1", x: 0.25, y: 0.75 },
     ];
     for (const message of messages) {
       expect(okClient(message)).toEqual(message);
@@ -116,6 +117,7 @@ describe("parseClientMessage", () => {
     badClient('{"type":"host"}');
     badClient('{"type":"positioning"}');
     badClient('{"type":"load"}');
+    badClient('{"type":"place","participantId":"p","x":2,"y":0}');
     badClient(
       '{"type":"positioning","config":{"targetWidthM":0,"venueWidthM":20,"venueDepthM":20}}',
     );

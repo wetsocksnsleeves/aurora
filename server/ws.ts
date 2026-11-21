@@ -448,6 +448,7 @@ export class WsRouter {
     stop: (conn) => this.onStop(conn),
     positioning: (conn, msg) => this.onPositioning(conn, msg),
     load: (conn, msg) => this.onLoad(conn, msg),
+    place: (conn, msg) => this.onPlace(conn, msg),
   };
 
   /**
@@ -645,6 +646,22 @@ export class WsRouter {
    * Host loads a show into the room, or reloads it after saving an edit
    * (SPEC 2.5). Phones stay connected and get schedules for the new show.
    */
+  /** The host dragged a phone to a new spot (SPEC 2.5). */
+  private onPlace(
+    conn: Connection,
+    msg: MessageOfType<ClientMessage, "place">,
+  ) {
+    const session = this.requireHost(conn);
+    const participant = this.store.place(session, msg.participantId, {
+      x: msg.x,
+      y: msg.y,
+    });
+    if (participant.readyTapped) void this.updateSchedule(session, participant);
+    // A placed phone no longer counts towards the crowd's shape.
+    this.scheduleRefit(session);
+    this.notifyParticipantsChanged(session);
+  }
+
   private async onLoad(
     conn: Connection,
     msg: MessageOfType<ClientMessage, "load">,

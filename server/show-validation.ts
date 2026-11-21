@@ -1,4 +1,14 @@
-import type { Clip, Point, Show, Venue } from "@/lib/types";
+import {
+  PATTERN_KINDS,
+  type Blink,
+  type Clip,
+  type Direction,
+  type PatternKind,
+  type PatternShape,
+  type Point,
+  type Show,
+  type Venue,
+} from "@/lib/types";
 import { isAudioFileId } from "./audio-store";
 
 /** The parts of a show a client may write. The server owns id and timestamps. */
@@ -8,6 +18,7 @@ export type ParseResult<T> =
   { ok: true; value: T } | { ok: false; error: string };
 
 export const DEFAULT_SHOW_NAME = "Untitled show";
+export const DEFAULT_SHOW_MS = 30_000;
 /** Size caps, so one request cannot store or later compile an unbounded show. */
 export const MAX_CLIPS = 2000;
 export const MAX_VENUE_SHAPES = 200;
@@ -135,10 +146,12 @@ function parseClip(value: unknown, at: string): Clip {
             points,
             moveTo: parsePoint(shape.moveTo, `${at}.shape.moveTo`, false),
           };
+  } else if (shape.kind === "pattern") {
+    parsedShape = parsePattern(shape, `${at}.shape`);
   } else {
-    fail(`${at}.shape.kind must be "fill" or "polygon"`);
+    fail(`${at}.shape.kind must be "fill", "polygon" or "pattern"`);
   }
-  return {
+  const clip: Clip = {
     id: nonEmptyString(value.id, `${at}.id`),
     layer: finite(value.layer, `${at}.layer`),
     startMs,
@@ -148,6 +161,60 @@ function parseClip(value: unknown, at: string): Clip {
     fadeOutMs: nonNegative(value.fadeOutMs, `${at}.fadeOutMs`),
     shape: parsedShape,
   };
+  if (value.blink !== undefined) {
+    clip.blink = parseBlink(value.blink, `${at}.blink`);
+  }
+  if (value.label !== undefined) {
+    if (typeof value.label !== "string" || value.label.length > MAX_LABEL) {
+      fail(`${at}.label must be a string of at most ${MAX_LABEL} characters`);
+    }
+    clip.label = value.label;
+  }
+  return clip;
+}
+
+const MAX_LABEL = 40;
+const DIRECTIONS: readonly Direction[] = ["left", "right", "up", "down"];
+
+function parsePattern(
+  shape: Record<string, unknown>,
+  at: string,
+): PatternShape {
+  const pattern = shape.pattern;
+  if (!PATTERN_KINDS.includes(pattern as PatternKind)) {
+    fail(`${at}.pattern must be one of ${PATTERN_KINDS.join(", ")}`);
+  }
+  if (!DIRECTIONS.includes(shape.direction as Direction)) {
+    fail(`${at}.direction must be one of ${DIRECTIONS.join(", ")}`);
+  }
+  const size = finite(shape.size, `${at}.size`);
+  if (size <= 0 || size > 1) fail(`${at}.size must be in (0, 1]`);
+  const stepMs = finite(shape.stepMs, `${at}.stepMs`);
+  if (stepMs < 20) fail(`${at}.stepMs must be at least 20`);
+  const from = finite(shape.from, `${at}.from`);
+  const to = finite(shape.to, `${at}.to`);
+  if (from < 0 || from > 1 || to < 0 || to > 1) {
+    fail(`${at}.from and .to must lie within 0..1`);
+  }
+  return {
+    kind: "pattern",
+    pattern: pattern as PatternKind,
+    direction: shape.direction as Direction,
+    size,
+    stepMs,
+    from,
+    to,
+  };
+}
+
+function parseBlink(value: unknown, at: string): Blink {
+  if (!isRecord(value)) fail(`${at} must be an object`);
+  const periodMs = finite(value.periodMs, `${at}.periodMs`);
+  if (periodMs < 40) fail(`${at}.periodMs must be at least 40`);
+  const duty = finite(value.duty, `${at}.duty`);
+  if (duty <= 0 || duty >= 1) fail(`${at}.duty must be between 0 and 1`);
+  if (typeof value.soft !== "boolean") fail(`${at}.soft must be a boolean`);
+  return { periodMs, duty, soft: value.soft };
 }
 
 function parseClips(value: unknown): Clip[] {
@@ -186,7 +253,8 @@ export function emptyShowInput(): ShowInput {
   return {
     name: DEFAULT_SHOW_NAME,
     venue: { shapes: [] },
-    audio: { fileId: "", durationMs: 0 },
+    // A show without music still has a length to put clips in.
+    audio: { fileId: "", durationMs: DEFAULT_SHOW_MS },
     clips: [],
   };
 }

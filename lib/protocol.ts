@@ -99,6 +99,18 @@ export type PositioningRequest = {
  */
 export type LoadShowRequest = { type: "load"; showId: string };
 
+/**
+ * Host only: put a participant at `x`, `y` in the room as the host sees it
+ * (0..1, fitted to the crowd), for last-minute fixes. Holds until the phone
+ * finds its seat again.
+ */
+export type PlaceRequest = {
+  type: "place";
+  participantId: string;
+  x: number;
+  y: number;
+};
+
 export type ClientMessage =
   | JoinMessage
   | SeatMessage
@@ -109,7 +121,8 @@ export type ClientMessage =
   | StartRequest
   | StopRequest
   | PositioningRequest
-  | LoadShowRequest;
+  | LoadShowRequest
+  | PlaceRequest;
 
 export type ClientMessageType = ClientMessage["type"];
 
@@ -361,6 +374,13 @@ function toClientMessage(v: Rec): ClientMessage {
       return { type: "positioning", config: positioningConfig(v.config) };
     case "load":
       return { type: "load", showId: str(v, "showId", MAX_ID_LENGTH) };
+    case "place":
+      return {
+        type: "place",
+        participantId: str(v, "participantId", MAX_ID_LENGTH),
+        x: unit(v, "x"),
+        y: unit(v, "y"),
+      };
     default:
       throw new InvalidMessage(`unknown client message type "${v.type}"`);
   }

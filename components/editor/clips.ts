@@ -115,9 +115,94 @@ export function activeClips(clips: readonly Clip[], tMs: number): Clip[] {
     .map(({ clip }) => clip);
 }
 
+const PATTERN_LABELS = {
+  wave: "Wave",
+  split: "Split",
+  chase: "Chase",
+  sparkle: "Sparkle",
+} as const;
+
 export function clipKindLabel(clip: Clip): string {
-  if (clip.shape.kind === "fill") return "Fill";
-  return clip.shape.moveTo ? "Moving" : "Shape";
+  if (clip.label) return clip.label;
+  const shape = clip.shape;
+  if (shape.kind === "fill") return "Fill";
+  if (shape.kind === "pattern") return PATTERN_LABELS[shape.pattern];
+  return shape.moveTo ? "Moving shape" : "Shape";
+}
+
+/**
+ * The lowest layer, from `from` up, with no clip overlapping
+ * [startMs, endMs) other than `ignoreId`. Timeline tracks are layers.
+ */
+export function freeLayer(
+  clips: readonly Clip[],
+  startMs: number,
+  endMs: number,
+  from = 0,
+  ignoreId?: string,
+): number {
+  for (let layer = Math.max(0, from); ; layer++) {
+    const taken = clips.some(
+      (c) =>
+        c.id !== ignoreId &&
+        c.layer === layer &&
+        c.startMs < endMs &&
+        startMs < c.endMs,
+    );
+    if (!taken) return layer;
+  }
+}
+
+/**
+ * Cut `clip` in two at `tMs`. The halves join without a fade at the cut,
+ * and a moving shape or a travelling pattern carries on from where the first
+ * half stopped. Null when `tMs` isn't inside the clip.
+ */
+export function splitClip(
+  clip: Clip,
+  tMs: number,
+  secondId: string,
+): [Clip, Clip] | null {
+  if (!(tMs > clip.startMs && tMs < clip.endMs)) return null;
+  const f = clipProgress(clip, tMs);
+  const first: Clip = { ...clip, endMs: tMs, fadeOutMs: 0 };
+  const second: Clip = { ...clip, id: secondId, startMs: tMs, fadeInMs: 0 };
+  first.fadeInMs = Math.min(clip.fadeInMs, tMs - clip.startMs);
+  second.fadeOutMs = Math.min(clip.fadeOutMs, clip.endMs - tMs);
+  const shape = clip.shape;
+  if (shape.kind === "polygon" && shape.moveTo) {
+    const m = shape.moveTo;
+    first.shape = { ...shape, moveTo: { x: m.x * f, y: m.y * f } };
+    second.shape = {
+      kind: "polygon",
+      points: shape.points.map((p) => ({ x: p.x + m.x * f, y: p.y + m.y * f })),
+      moveTo: { x: m.x * (1 - f), y: m.y * (1 - f) },
+    };
+  } else if (shape.kind === "pattern") {
+    const mid = shape.from + (shape.to - shape.from) * f;
+    first.shape = { ...shape, to: mid };
+    second.shape = { ...shape, from: mid };
+  }
+  return [first, second];
+}
+
+/**
+ * Snap `tMs` to the nearest of `targets` (clip edges, the playhead) within
+ * `toleranceMs`, else return null.
+ */
+export function snapToTargets(
+  tMs: number,
+  targets: readonly number[],
+  toleranceMs: number,
+): number | null {
+  let best: number | null = null;
+  for (const t of targets) {
+    const d = Math.abs(t - tMs);
+    if (d <= toleranceMs && (best === null || d < Math.abs(best - tMs))) {
+      best = t;
+    }
+  }
+  return best;
 }
 
 // ---------------------------------------------------------------------------
