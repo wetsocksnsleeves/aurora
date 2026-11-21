@@ -228,7 +228,7 @@ export function HostApp({ code }: { code: string }) {
           </span>{" "}
           marks a phone whose clock sync is degraded.
         </p>
-        <Link className={styles.screenLink} href={`/sessions/${code}/mock`}>
+        <Link className={styles.screenLink} href="/mock">
           3D view
         </Link>
         {connection !== "open" ? (

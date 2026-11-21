@@ -16,7 +16,7 @@ const RECONNECT_MIN_MS = 500;
 const RECONNECT_MAX_MS = 5000;
 const COUNT_EVERY_MS = 250;
 
-type Status = "waiting" | "live" | "mismatch";
+type Status = "waiting" | "live";
 
 const STAT_STATES = ["connected", "seated", "syncing", "standby"] as const;
 type Counts = Record<(typeof STAT_STATES)[number] | "playing", number>;
@@ -44,19 +44,18 @@ function countStates(rgb: Uint8Array): Counts {
 /**
  * The simulated crowd in 3D (`scripts/sim.ts --stream`): a mock arena with
  * every simulated phone as an LED panel on the raked floor, in the language
- * of the participant page's room view. `?stream=` picks the stream port.
+ * of the participant page's room view. Testing only: it shows whichever
+ * session the local sim is streaming. `?stream=` picks the stream port.
  */
 export default function MockPage(props: {
-  params: Promise<{ code: string }>;
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
-  const code = use(props.params).code.toUpperCase();
   const streamParam = use(props.searchParams).stream;
   const port = parsePort(streamParam);
 
   const stage = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<Status>("waiting");
-  const [streamCode, setStreamCode] = useState<string | null>(null);
+  const [code, setCode] = useState<string | null>(null);
   const [clients, setClients] = useState(0);
   const [counts, setCounts] = useState<Counts>(NO_COUNTS);
 
@@ -86,9 +85,9 @@ export default function MockPage(props: {
           const seats: (Point | null)[] = r.value.seats;
           seatCount = seats.length;
           latest = null;
-          setStreamCode(r.value.code.toUpperCase());
+          setCode(r.value.code.toUpperCase());
           setClients(seatCount);
-          setStatus(r.value.code.toUpperCase() === code ? "live" : "mismatch");
+          setStatus("live");
           scene?.setSeats(seats, r.value.venue);
           return;
         }
@@ -127,7 +126,7 @@ export default function MockPage(props: {
       }
       scene?.dispose();
     };
-  }, [code, port]);
+  }, [port]);
 
   return (
     <main className={`${styles.shell} ${body.className}`}>
@@ -139,9 +138,7 @@ export default function MockPage(props: {
         <p className={styles.label} role="status">
           {status === "live"
             ? `Stream live · ${code}`
-            : status === "mismatch"
-              ? "Stream mismatch"
-              : "Waiting for simulation"}
+            : "Waiting for simulation"}
         </p>
       </header>
 
@@ -153,12 +150,6 @@ export default function MockPage(props: {
             Run <code>npx tsx scripts/sim.ts --stream {port}</code>
           </p>
         </div>
-      ) : null}
-
-      {status === "mismatch" ? (
-        <p className={styles.warning} role="alert">
-          This stream is for session {streamCode}, not {code}.
-        </p>
       ) : null}
 
       {status !== "waiting" ? (
