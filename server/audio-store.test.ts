@@ -1,5 +1,28 @@
+import fs from "node:fs";
 import { describe, expect, it } from "vitest";
-import { audioExtFor, isAudioFileId, parseRange } from "./audio-store";
+import { MIXTAPE_AUDIO_FILE_ID } from "@/lib/mixtape-show";
+import {
+  audioExtFor,
+  audioFilePath,
+  contentFileId,
+  isAudioFileId,
+  parseRange,
+} from "./audio-store";
+
+describe("contentFileId", () => {
+  it("makes a valid file id that changes with the bytes", () => {
+    const a = contentFileId(new Uint8Array([1, 2, 3]), "mp3");
+    expect(isAudioFileId(a)).toBe(true);
+    expect(contentFileId(new Uint8Array([1, 2, 3]), "mp3")).toBe(a);
+    expect(contentFileId(new Uint8Array([1, 2, 4]), "mp3")).not.toBe(a);
+  });
+
+  it("matches the bundled mixtape, so a changed mp3 gets a new URL", () => {
+    // Fails if mixtape.mp3 was replaced without rerunning scripts/mixtape.ts.
+    const bytes = fs.readFileSync(audioFilePath(MIXTAPE_AUDIO_FILE_ID));
+    expect(contentFileId(bytes, "mp3")).toBe(MIXTAPE_AUDIO_FILE_ID);
+  });
+});
 
 describe("parseRange", () => {
   it("returns null without a header", () => {

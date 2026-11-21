@@ -26,6 +26,7 @@ import { compileSchedule } from "@/lib/compile";
 import { barIntensity, generateLightShow } from "@/lib/light-show-generator";
 import { TEST_VENUE } from "@/lib/test-show";
 import type { Clip, ClipShape, Show } from "@/lib/types";
+import { contentFileId } from "@/server/audio-store";
 import { parseShowPatch } from "@/server/show-validation";
 
 /**
@@ -137,6 +138,7 @@ function main(): void {
   clips.sort((a, b) => a.startMs - b.startMs || a.layer - b.layer);
   const durationMs = Math.round(atMs);
   renderAudio(cuts, fadeMs, values.audio);
+  const audioFileId = contentFileId(fs.readFileSync(values.audio), "mp3");
 
   const patch = parseShowPatch({
     name: "mixtape",
@@ -161,7 +163,8 @@ function main(): void {
 
   fs.writeFileSync(
     values.json,
-    JSON.stringify({ durationMs, sections, clips }, null, 2) + "\n",
+    JSON.stringify({ audioFileId, durationMs, sections, clips }, null, 2) +
+      "\n",
   );
   console.log(`wrote ${values.audio} and ${values.json}`);
 }

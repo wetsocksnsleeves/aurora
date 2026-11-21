@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { BUILTIN_TRACKS } from "@/lib/builtin-tracks";
@@ -56,6 +56,16 @@ export function contentTypeFor(fileId: string): string {
   return isAudioExt(ext)
     ? AUDIO_CONTENT_TYPES[ext]
     : "application/octet-stream";
+}
+
+/**
+ * A file id made from the file's SHA-256, for audio bundled with the app.
+ * Audio is served as `immutable`, so a bundled file that changes needs a new
+ * id or browsers keep playing the copy they cached.
+ */
+export function contentFileId(bytes: Uint8Array, ext: AudioExt): string {
+  const h = createHash("sha256").update(bytes).digest("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}.${ext}`;
 }
 
 /** Audio shipped with the app for built-in shows, by file id. Paths are relative to the working directory. */

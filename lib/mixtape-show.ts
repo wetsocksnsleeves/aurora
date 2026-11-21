@@ -12,8 +12,12 @@ import type { Clip, Show } from "./types";
  */
 export const MIXTAPE_SHOW_ID = "mixtape";
 
-/** Fixed id so the audio route can map it to the bundled file. */
-export const MIXTAPE_AUDIO_FILE_ID = "d4d476f2-4280-4821-bce3-c9abc634d244.mp3";
+/**
+ * Lets the audio route map the id to the bundled file. `scripts/mixtape.ts`
+ * makes it from the mp3's hash, so a rebuilt mixtape gets a new URL and
+ * browsers don't play an old cached copy.
+ */
+export const MIXTAPE_AUDIO_FILE_ID = mixtape.audioFileId;
 
 export const MIXTAPE_SHOW: Show = {
   id: MIXTAPE_SHOW_ID,
