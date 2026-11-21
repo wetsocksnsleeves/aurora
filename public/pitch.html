@@ -22,6 +22,8 @@
         --accent-3: #f472b6;
         --panel: #15151d;
         --line: #26262f;
+        --ease: cubic-bezier(0.16, 1, 0.3, 1);
+        --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
       }
 
       * {
@@ -46,6 +48,15 @@
 
       /* Slides are laid out on a fixed 1600x900 stage that is scaled to fit,
          so the layout looks the same on a laptop and a projector. */
+      /* Clips the stage to the screen. Without it, the unscaled 1600px stage
+         and off-screen slides widen the page, and mobile browsers zoom out
+         to fit, so the deck renders larger than the display. */
+      .viewport {
+        position: fixed;
+        inset: 0;
+        overflow: hidden;
+      }
+
       .stage {
         position: absolute;
         top: 50%;
@@ -65,14 +76,73 @@
         isolation: isolate;
         opacity: 0;
         visibility: hidden;
+        translate: 90px 0;
         transition:
-          opacity 0.35s ease,
-          visibility 0.35s;
+          opacity 0.5s ease,
+          translate 0.9s var(--ease),
+          visibility 0.9s;
+      }
+
+      /* Slides already passed sit to the left, so going forward slides
+         content in from the right and going back reverses it. */
+      .slide.past {
+        translate: -90px 0;
       }
 
       .slide.active {
         opacity: 1;
         visibility: visible;
+        translate: 0 0;
+      }
+
+      /* -- Build: each slide's content rises in, one piece after another.
+         The script tags the pieces with .reveal and an index --i. */
+      .reveal {
+        --delay: calc(70ms + var(--i, 0) * 90ms);
+        opacity: 0;
+        translate: 0 28px;
+        filter: blur(8px);
+        transition:
+          opacity 0.45s ease,
+          translate 0.45s ease,
+          scale 0.45s ease,
+          filter 0.45s ease;
+      }
+
+      .slide.active .reveal {
+        opacity: 1;
+        translate: 0 0;
+        scale: 1;
+        filter: none;
+        transition:
+          opacity 0.7s ease var(--delay),
+          translate 0.9s var(--ease) var(--delay),
+          scale 1.1s var(--ease) var(--delay),
+          filter 0.7s ease var(--delay);
+      }
+
+      /* A big word that lands from slightly too close. */
+      .boom.reveal {
+        scale: 1.25;
+        filter: blur(18px);
+      }
+
+      .slide.active li.reveal::before {
+        animation: pop 0.6s var(--spring) both;
+        animation-delay: calc(var(--delay) + 0.15s);
+      }
+
+      @keyframes pop {
+        from {
+          scale: 0;
+          opacity: 0;
+        }
+      }
+
+      @keyframes draw {
+        to {
+          stroke-dashoffset: 0;
+        }
       }
 
       .notes {
@@ -183,6 +253,34 @@
         text-transform: uppercase;
         color: var(--accent);
         margin-bottom: 24px;
+        /* A highlight sweeps across the label every few seconds. */
+        --k: var(--accent);
+        background: linear-gradient(
+            110deg,
+            var(--k) 40%,
+            #fff 50%,
+            var(--k) 60%
+          )
+          0 0 / 250% 100%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        width: fit-content;
+        animation: shine 4.5s ease-in-out infinite;
+      }
+
+      .center .kicker {
+        margin-inline: auto;
+      }
+
+      @keyframes shine {
+        0% {
+          background-position: 100% 0;
+        }
+        45%,
+        100% {
+          background-position: 0 0;
+        }
       }
 
       .lede {
@@ -217,6 +315,7 @@
       }
 
       .card {
+        position: relative;
         background: var(--panel);
         border: 1px solid var(--line);
         border-radius: 24px;
@@ -290,13 +389,116 @@
         color: var(--accent);
       }
 
+      /* Lines print one after another once the box is in. */
+      .formula > span {
+        display: block;
+        opacity: 0;
+        translate: -14px 0;
+        transition:
+          opacity 0.2s ease,
+          translate 0.2s ease;
+      }
+
+      .formula > .gap {
+        margin-top: 1.6em;
+      }
+
+      .slide.active .formula > span {
+        opacity: 1;
+        translate: 0 0;
+        transition:
+          opacity 0.5s ease var(--line-delay),
+          translate 0.6s var(--ease) var(--line-delay);
+        --line-delay: calc(var(--delay) + 0.3s + var(--j, 0) * 110ms);
+      }
+
+      .slide.active .formula > .a {
+        animation: glow 2.4s ease-in-out infinite;
+        animation-delay: calc(var(--line-delay) + 0.6s);
+      }
+
+      @keyframes glow {
+        50% {
+          text-shadow: 0 0 18px rgb(110 231 183 / 0.7);
+        }
+      }
+
+      /* Slide 4: the anchors draw themselves, then the grille lights up
+         from the middle outwards like LEDs. */
+      .anchors rect {
+        stroke-dasharray: 1;
+        stroke-dashoffset: 1;
+      }
+
+      .slide.active .anchors rect {
+        animation: draw 0.9s var(--ease) forwards;
+        animation-delay: 0.7s;
+      }
+
+      .slide.active .anchors rect:nth-child(2) {
+        animation-delay: 0.8s;
+      }
+
+      .slide.active .anchors rect:nth-child(3) {
+        animation-delay: 0.9s;
+      }
+
+      .slide.active .anchors rect:nth-child(4) {
+        animation-delay: 1s;
+      }
+
+      #grille circle {
+        opacity: 0.1;
+        scale: 0.3;
+        transform-box: fill-box;
+        transform-origin: center;
+        transition:
+          opacity 0.2s ease,
+          scale 0.2s ease;
+      }
+
+      .slide.active #grille circle {
+        opacity: 1;
+        scale: 1;
+        transition:
+          opacity 0.4s ease var(--d),
+          scale 0.6s var(--spring) var(--d);
+      }
+
+      /* Slide 6: the warning sign draws itself, then breathes. */
+      .warn path {
+        stroke-dasharray: 1;
+        stroke-dashoffset: 1;
+      }
+
+      .slide.active .warn path {
+        animation:
+          draw 1s var(--ease) forwards,
+          warn 2.6s ease-in-out infinite;
+        animation-delay: 0.35s, 1.4s;
+      }
+
+      .slide.active .warn path:nth-child(2) {
+        animation-delay: 0.8s, 1.4s;
+      }
+
+      .slide.active .warn path:nth-child(3) {
+        animation-delay: 1s, 1.4s;
+      }
+
+      @keyframes warn {
+        50% {
+          filter: drop-shadow(0 0 1.5px #fbbf24);
+        }
+      }
+
       .footnote {
         font-size: 24px;
         color: var(--muted);
         margin-top: 44px;
       }
 
-      #hero-canvas {
+      .slide > .crowd {
         position: absolute;
         z-index: -1;
         inset: 0;
@@ -337,15 +539,221 @@
         text-align: center;
       }
 
+      /* -- Light show dressing ---------------------------------------------
+         Behind every slide: a lighting rig of coloured spotlights sweeping
+         down from the top, and an LED wall glowing along the bottom. Slides
+         set a mood: "loud" turns the rig up, "crowd" hides the wall where a
+         crowd canvas already fills the floor. */
+      .rig,
+      .ledwall {
+        position: absolute;
+        pointer-events: none;
+        transition: opacity 1.2s ease;
+      }
+
+      .rig {
+        inset: 0;
+        opacity: 0.45;
+        /* Haze where the lamps hang. */
+        background: radial-gradient(
+          ellipse 70% 30% at 50% 0%,
+          rgb(96 165 250 / 0.12),
+          transparent 70%
+        );
+      }
+
+      body[data-mood~="loud"] .rig {
+        opacity: 1;
+      }
+
+      .beam {
+        position: absolute;
+        top: -4vh;
+        left: var(--x);
+        width: 36vmax;
+        height: 125vh;
+        margin-left: -18vmax;
+        transform-origin: 50% 0;
+        rotate: var(--from);
+        /* Blur the clipped cone (on the parent) so its edges glow softly. */
+        filter: blur(14px);
+        mix-blend-mode: screen;
+        opacity: 0.34;
+        animation: sweep var(--s) ease-in-out var(--delay) infinite alternate;
+      }
+
+      .beam::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          to bottom,
+          var(--c) 0%,
+          color-mix(in srgb, var(--c) 30%, transparent) 45%,
+          transparent 85%
+        );
+        clip-path: polygon(48% 0, 52% 0, 100% 100%, 0 100%);
+      }
+
+      @keyframes sweep {
+        to {
+          rotate: var(--to);
+        }
+      }
+
+      .ledwall {
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 40%;
+        opacity: 0.3;
+        background: linear-gradient(
+          90deg,
+          #ff5f8f,
+          #ffb347,
+          #ffe66d,
+          #6dffb0,
+          #6dd5ff,
+          #b98bff,
+          #ff5f8f
+        );
+        background-size: 300% 100%;
+        /* LED dots, fading out towards the top. */
+        -webkit-mask:
+          radial-gradient(circle, #000 1.7px, transparent 2.3px) 0 0 / 22px 22px,
+          linear-gradient(to top, #000, transparent);
+        -webkit-mask-composite: source-in;
+        mask:
+          radial-gradient(circle, #000 1.7px, transparent 2.3px) 0 0 / 22px 22px,
+          linear-gradient(to top, #000, transparent);
+        mask-composite: intersect;
+        animation: flow 14s linear infinite;
+      }
+
+      body[data-mood~="loud"] .ledwall {
+        opacity: 0.55;
+      }
+
+      body[data-mood~="crowd"] .ledwall {
+        opacity: 0;
+      }
+
+      /* Cards and the formula box: a comet of light orbits the border. */
+      @property --angle {
+        syntax: "<angle>";
+        initial-value: 0deg;
+        inherits: false;
+      }
+
+      .card::after,
+      .formula::after {
+        content: "";
+        position: absolute;
+        inset: -1px;
+        padding: 2px;
+        border-radius: inherit;
+        background: conic-gradient(
+          from var(--angle),
+          transparent 0 60%,
+          var(--accent) 74%,
+          var(--accent-2) 84%,
+          var(--accent-3) 93%,
+          transparent 100%
+        );
+        -webkit-mask:
+          linear-gradient(#000 0 0) content-box,
+          linear-gradient(#000 0 0);
+        -webkit-mask-composite: xor;
+        mask:
+          linear-gradient(#000 0 0) content-box,
+          linear-gradient(#000 0 0);
+        mask-composite: exclude;
+        animation: orbit 6s linear infinite;
+        pointer-events: none;
+      }
+
+      .card + .card::after {
+        animation-delay: -3s;
+      }
+
+      @keyframes orbit {
+        to {
+          --angle: 360deg;
+        }
+      }
+
+      /* Closing slide: the crowd plays a finale behind the wordmark. */
+      .finale > * {
+        position: relative;
+      }
+
+      .finale::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(
+          ellipse 48% 42% at 50% 52%,
+          rgb(11 11 16 / 0.92),
+          rgb(11 11 16 / 0.55) 60%,
+          transparent 100%
+        );
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .beam,
+        .ledwall,
+        .kicker,
+        .card::after,
+        .formula::after {
+          animation: none !important;
+        }
+      }
+
       /* Chrome: progress bar, slide counter, notes panel */
       .progress {
         position: fixed;
         left: 0;
         bottom: 0;
         height: 4px;
-        background: var(--accent);
-        transition: width 0.3s ease;
+        background: linear-gradient(
+          90deg,
+          var(--accent),
+          var(--accent-2),
+          var(--accent-3)
+        );
+        box-shadow: 0 0 12px rgb(110 231 183 / 0.5);
+        transition: width 0.8s var(--ease);
         z-index: 10;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .slide,
+        .slide.past,
+        .reveal,
+        .boom.reveal,
+        .formula > span {
+          translate: none !important;
+          scale: none !important;
+          filter: none !important;
+          transition-delay: 0s !important;
+        }
+
+        .slide *,
+        .slide *::before {
+          animation: none !important;
+        }
+
+        .anchors rect,
+        .warn path {
+          stroke-dashoffset: 0;
+        }
+
+        #grille circle {
+          opacity: 1;
+          scale: none;
+        }
       }
 
       .counter {
@@ -381,202 +789,356 @@
     </style>
   </head>
   <body>
-    <div class="stage" id="stage">
-      <!-- 1. Title -->
-      <section class="slide title-slide">
-        <canvas id="hero-canvas"></canvas>
-        <h1 class="wordmark">lightshow</h1>
-        <p class="lede">Lightshows from synchronised phone screens</p>
-        <aside class="notes">
-          Open on the animation. One line: Lightshow turns the audience's own
-          phones into a stadium light show, with no app and no hardware.
-        </aside>
-      </section>
+    <div class="viewport">
+      <div class="rig" aria-hidden="true">
+        <i
+          class="beam"
+          style="
+            --x: 8%;
+            --c: var(--accent);
+            --from: -28deg;
+            --to: 12deg;
+            --s: 9s;
+            --delay: 0s;
+          "
+        ></i>
+        <i
+          class="beam"
+          style="
+            --x: 30%;
+            --c: var(--accent-3);
+            --from: 22deg;
+            --to: -14deg;
+            --s: 7s;
+            --delay: -2s;
+          "
+        ></i>
+        <i
+          class="beam"
+          style="
+            --x: 50%;
+            --c: var(--accent-2);
+            --from: -14deg;
+            --to: 14deg;
+            --s: 11s;
+            --delay: -5s;
+          "
+        ></i>
+        <i
+          class="beam"
+          style="
+            --x: 70%;
+            --c: var(--accent-3);
+            --from: 16deg;
+            --to: -22deg;
+            --s: 8s;
+            --delay: -1s;
+          "
+        ></i>
+        <i
+          class="beam"
+          style="
+            --x: 92%;
+            --c: var(--accent);
+            --from: 28deg;
+            --to: -12deg;
+            --s: 10s;
+            --delay: -4s;
+          "
+        ></i>
+      </div>
+      <div class="ledwall" aria-hidden="true"></div>
+      <div class="stage" id="stage">
+        <!-- 1. Title -->
+        <section class="slide title-slide" data-mood="crowd loud">
+          <canvas class="crowd" data-pattern="wave"></canvas>
+          <h1 class="wordmark">lightshow</h1>
+          <p class="lede">Lightshows from synchronised phone screens</p>
+          <aside class="notes">
+            Open on the animation. One line: Lightshow turns the audience's own
+            phones into a stadium light show, with no app and no hardware.
+          </aside>
+        </section>
 
-      <!-- 2. Problem -->
-      <section class="slide">
-        <div class="kicker">The problem</div>
-        <h2>Crowd light shows need hardware</h2>
-        <ul>
-          <li>
-            <strong>LED wristbands</strong>: bought, handed out, thrown away.
-          </li>
-          <li><strong>Phone torches</strong>: free, but out of sync.</li>
-          <li>
-            <strong>Phone screens</strong>: full colour, already in every
-            pocket.
-          </li>
-        </ul>
-        <aside class="notes">
-          Wristband shows look great but cost money and logistics for every
-          event. The screens are already in the room.
-        </aside>
-      </section>
+        <!-- 2. Problem -->
+        <section class="slide">
+          <div class="kicker">The problem</div>
+          <h2>Crowd light shows need hardware</h2>
+          <ul>
+            <li>
+              <strong>LED wristbands</strong>: bought, handed out, thrown away.
+            </li>
+            <li><strong>Phone torches</strong>: free, but out of sync.</li>
+            <li>
+              <strong>Phone screens</strong>: full colour, already in every
+              pocket.
+            </li>
+          </ul>
+          <aside class="notes">
+            Wristband shows look great but cost money and logistics for every
+            event. The screens are already in the room.
+          </aside>
+        </section>
 
-      <!-- 3. The idea -->
-      <section class="slide">
-        <div class="kicker">The idea</div>
-        <h2>Lots of things, moving together</h2>
-        <div class="cols" style="grid-template-columns: 1fr 1fr">
-          <div class="card">
-            <h3>Drone light shows</h3>
-            <p>Hundreds of drones, one picture in the sky.</p>
+        <!-- 3. The idea -->
+        <section class="slide">
+          <div class="kicker">The idea</div>
+          <h2>Lots of things, moving together</h2>
+          <div class="cols" style="grid-template-columns: 1fr 1fr">
+            <div class="card">
+              <h3>Drone light shows</h3>
+              <p>Hundreds of drones, one picture in the sky.</p>
+            </div>
+            <div class="card">
+              <h3>Stadium waves</h3>
+              <p>Thousands of people, one motion around the ground.</p>
+            </div>
           </div>
-          <div class="card">
-            <h3>Stadium waves</h3>
-            <p>Thousands of people, one motion around the ground.</p>
-          </div>
-        </div>
-        <p class="lede" style="margin-top: 56px">
-          It's satisfying when everything moves as one.
-        </p>
-      </section>
+          <p class="lede" style="margin-top: 56px">
+            It's satisfying when everything moves as one.
+          </p>
+        </section>
 
-      <!-- 4. Camera seat finding -->
-      <section class="slide">
-        <div class="split">
-          <div>
-            <div class="kicker">Finding your seat</div>
-            <h2>The phone locates itself with its camera</h2>
-            <ul>
-              <li>
-                The big screen shows a target: <strong>four anchors</strong>
-                around an LED-style grille.
-              </li>
-              <li>
-                The phone matches <strong>~300 points</strong> and solves where
-                the camera is in the room.
-              </li>
-              <li>
-                Field of view is measured from the angle, or from a slow sweep
-                using the gyro.
-              </li>
-            </ul>
+        <!-- 4. Camera seat finding -->
+        <section class="slide">
+          <div class="split">
+            <div>
+              <div class="kicker">Finding your seat</div>
+              <h2>The phone locates itself with its camera</h2>
+              <ul>
+                <li>
+                  The big screen shows a target: <strong>four anchors</strong>
+                  around an LED-style grille.
+                </li>
+                <li>
+                  The phone matches <strong>~300 points</strong> and solves
+                  where the camera is in the room.
+                </li>
+                <li>
+                  Field of view is measured from the angle, or from a slow sweep
+                  using the gyro.
+                </li>
+              </ul>
+            </div>
+            <svg viewBox="0 0 400 300" width="560" aria-hidden="true">
+              <rect
+                x="1"
+                y="1"
+                width="398"
+                height="298"
+                rx="18"
+                fill="#15151d"
+                stroke="#26262f"
+              />
+              <g id="grille"></g>
+              <g class="anchors" fill="none" stroke="#f2f2f5" stroke-width="7">
+                <rect
+                  x="22"
+                  y="22"
+                  width="56"
+                  height="56"
+                  rx="12"
+                  pathLength="1"
+                />
+                <rect
+                  x="322"
+                  y="22"
+                  width="56"
+                  height="56"
+                  rx="12"
+                  pathLength="1"
+                />
+                <rect
+                  x="22"
+                  y="222"
+                  width="56"
+                  height="56"
+                  rx="12"
+                  pathLength="1"
+                />
+                <rect
+                  x="322"
+                  y="222"
+                  width="56"
+                  height="56"
+                  rx="12"
+                  pathLength="1"
+                />
+              </g>
+              <g fill="#f2f2f5">
+                <rect x="38" y="38" width="24" height="24" rx="5" />
+                <rect x="338" y="38" width="24" height="24" rx="5" />
+                <rect x="38" y="238" width="24" height="24" rx="5" />
+                <rect x="338" y="238" width="24" height="24" rx="5" />
+              </g>
+              <!-- A real QR code (it encodes the word "lightshow"), drawn like the big screen's: rounded finder squares. -->
+              <rect
+                x="160"
+                y="110"
+                width="80"
+                height="80"
+                rx="7"
+                fill="#f2f2f5"
+              />
+              <g fill="#0b0b10">
+                <path
+                  d="M195.28 116.93h3.25v3.25h-3.25zM198.43 116.93h3.25v3.25h-3.25zM198.43 120.08h3.25v3.25h-3.25zM198.43 123.23h3.25v3.25h-3.25zM198.43 126.38h3.25v3.25h-3.25zM201.57 126.38h3.25v3.25h-3.25zM204.72 129.53h3.25v3.25h-3.25zM192.13 132.68h3.25v3.25h-3.25zM195.28 132.68h3.25v3.25h-3.25zM198.43 132.68h3.25v3.25h-3.25zM201.57 132.68h3.25v3.25h-3.25zM204.72 132.68h3.25v3.25h-3.25zM192.13 135.83h3.25v3.25h-3.25zM198.43 135.83h3.25v3.25h-3.25zM204.72 135.83h3.25v3.25h-3.25zM195.28 138.98h3.25v3.25h-3.25zM198.43 138.98h3.25v3.25h-3.25zM201.57 138.98h3.25v3.25h-3.25zM204.72 138.98h3.25v3.25h-3.25zM166.93 142.13h3.25v3.25h-3.25zM176.38 142.13h3.25v3.25h-3.25zM182.68 142.13h3.25v3.25h-3.25zM185.83 142.13h3.25v3.25h-3.25zM192.13 142.13h3.25v3.25h-3.25zM195.28 142.13h3.25v3.25h-3.25zM207.87 142.13h3.25v3.25h-3.25zM214.17 142.13h3.25v3.25h-3.25zM166.93 145.28h3.25v3.25h-3.25zM170.08 145.28h3.25v3.25h-3.25zM173.23 145.28h3.25v3.25h-3.25zM176.38 145.28h3.25v3.25h-3.25zM179.53 145.28h3.25v3.25h-3.25zM188.98 145.28h3.25v3.25h-3.25zM192.13 145.28h3.25v3.25h-3.25zM198.43 145.28h3.25v3.25h-3.25zM211.02 145.28h3.25v3.25h-3.25zM214.17 145.28h3.25v3.25h-3.25zM217.32 145.28h3.25v3.25h-3.25zM220.47 145.28h3.25v3.25h-3.25zM223.62 145.28h3.25v3.25h-3.25zM226.77 145.28h3.25v3.25h-3.25zM229.92 145.28h3.25v3.25h-3.25zM170.08 148.43h3.25v3.25h-3.25zM173.23 148.43h3.25v3.25h-3.25zM179.53 148.43h3.25v3.25h-3.25zM182.68 148.43h3.25v3.25h-3.25zM185.83 148.43h3.25v3.25h-3.25zM195.28 148.43h3.25v3.25h-3.25zM198.43 148.43h3.25v3.25h-3.25zM204.72 148.43h3.25v3.25h-3.25zM214.17 148.43h3.25v3.25h-3.25zM220.47 148.43h3.25v3.25h-3.25zM223.62 148.43h3.25v3.25h-3.25zM229.92 148.43h3.25v3.25h-3.25zM166.93 151.57h3.25v3.25h-3.25zM173.23 151.57h3.25v3.25h-3.25zM176.38 151.57h3.25v3.25h-3.25zM188.98 151.57h3.25v3.25h-3.25zM192.13 151.57h3.25v3.25h-3.25zM201.57 151.57h3.25v3.25h-3.25zM211.02 151.57h3.25v3.25h-3.25zM214.17 151.57h3.25v3.25h-3.25zM220.47 151.57h3.25v3.25h-3.25zM226.77 151.57h3.25v3.25h-3.25zM229.92 151.57h3.25v3.25h-3.25zM166.93 154.72h3.25v3.25h-3.25zM173.23 154.72h3.25v3.25h-3.25zM182.68 154.72h3.25v3.25h-3.25zM185.83 154.72h3.25v3.25h-3.25zM192.13 154.72h3.25v3.25h-3.25zM204.72 154.72h3.25v3.25h-3.25zM207.87 154.72h3.25v3.25h-3.25zM226.77 154.72h3.25v3.25h-3.25zM192.13 157.87h3.25v3.25h-3.25zM201.57 157.87h3.25v3.25h-3.25zM207.87 157.87h3.25v3.25h-3.25zM214.17 157.87h3.25v3.25h-3.25zM229.92 157.87h3.25v3.25h-3.25zM198.43 161.02h3.25v3.25h-3.25zM207.87 161.02h3.25v3.25h-3.25zM211.02 161.02h3.25v3.25h-3.25zM214.17 161.02h3.25v3.25h-3.25zM217.32 161.02h3.25v3.25h-3.25zM226.77 161.02h3.25v3.25h-3.25zM192.13 164.17h3.25v3.25h-3.25zM201.57 164.17h3.25v3.25h-3.25zM204.72 164.17h3.25v3.25h-3.25zM207.87 164.17h3.25v3.25h-3.25zM217.32 164.17h3.25v3.25h-3.25zM195.28 167.32h3.25v3.25h-3.25zM201.57 167.32h3.25v3.25h-3.25zM207.87 167.32h3.25v3.25h-3.25zM211.02 167.32h3.25v3.25h-3.25zM226.77 167.32h3.25v3.25h-3.25zM192.13 170.47h3.25v3.25h-3.25zM195.28 170.47h3.25v3.25h-3.25zM201.57 170.47h3.25v3.25h-3.25zM217.32 170.47h3.25v3.25h-3.25zM223.62 170.47h3.25v3.25h-3.25zM226.77 170.47h3.25v3.25h-3.25zM229.92 170.47h3.25v3.25h-3.25zM195.28 173.62h3.25v3.25h-3.25zM204.72 173.62h3.25v3.25h-3.25zM214.17 173.62h3.25v3.25h-3.25zM217.32 173.62h3.25v3.25h-3.25zM223.62 173.62h3.25v3.25h-3.25zM229.92 173.62h3.25v3.25h-3.25zM207.87 176.77h3.25v3.25h-3.25zM211.02 176.77h3.25v3.25h-3.25zM214.17 176.77h3.25v3.25h-3.25zM217.32 176.77h3.25v3.25h-3.25zM192.13 179.92h3.25v3.25h-3.25zM201.57 179.92h3.25v3.25h-3.25zM204.72 179.92h3.25v3.25h-3.25zM214.17 179.92h3.25v3.25h-3.25zM217.32 179.92h3.25v3.25h-3.25zM226.77 179.92h3.25v3.25h-3.25z"
+                />
+                <rect
+                  x="166.93"
+                  y="116.93"
+                  width="22.05"
+                  height="22.05"
+                  rx="4.41"
+                />
+                <rect
+                  x="170.08"
+                  y="120.08"
+                  width="15.75"
+                  height="15.75"
+                  rx="2.65"
+                  fill="#f2f2f5"
+                />
+                <rect
+                  x="173.23"
+                  y="123.23"
+                  width="9.45"
+                  height="9.45"
+                  rx="1.98"
+                />
+                <rect
+                  x="211.02"
+                  y="116.93"
+                  width="22.05"
+                  height="22.05"
+                  rx="4.41"
+                />
+                <rect
+                  x="214.17"
+                  y="120.08"
+                  width="15.75"
+                  height="15.75"
+                  rx="2.65"
+                  fill="#f2f2f5"
+                />
+                <rect
+                  x="217.32"
+                  y="123.23"
+                  width="9.45"
+                  height="9.45"
+                  rx="1.98"
+                />
+                <rect
+                  x="166.93"
+                  y="161.02"
+                  width="22.05"
+                  height="22.05"
+                  rx="4.41"
+                />
+                <rect
+                  x="170.08"
+                  y="164.17"
+                  width="15.75"
+                  height="15.75"
+                  rx="2.65"
+                  fill="#f2f2f5"
+                />
+                <rect
+                  x="173.23"
+                  y="167.32"
+                  width="9.45"
+                  height="9.45"
+                  rx="1.98"
+                />
+              </g>
+            </svg>
           </div>
-          <svg viewBox="0 0 400 300" width="560" aria-hidden="true">
-            <rect
-              x="1"
-              y="1"
-              width="398"
-              height="298"
-              rx="18"
-              fill="#15151d"
-              stroke="#26262f"
-            />
-            <g id="grille"></g>
-            <g fill="none" stroke="#f2f2f5" stroke-width="7">
-              <rect x="22" y="22" width="56" height="56" rx="12" />
-              <rect x="322" y="22" width="56" height="56" rx="12" />
-              <rect x="22" y="222" width="56" height="56" rx="12" />
-              <rect x="322" y="222" width="56" height="56" rx="12" />
-            </g>
-            <g fill="#f2f2f5">
-              <rect x="38" y="38" width="24" height="24" rx="5" />
-              <rect x="338" y="38" width="24" height="24" rx="5" />
-              <rect x="38" y="238" width="24" height="24" rx="5" />
-              <rect x="338" y="238" width="24" height="24" rx="5" />
-            </g>
-            <rect
-              x="160"
-              y="110"
-              width="80"
-              height="80"
-              rx="8"
-              fill="#f2f2f5"
-            />
-            <g fill="#0b0b10">
-              <rect x="168" y="118" width="20" height="20" />
-              <rect x="212" y="118" width="20" height="20" />
-              <rect x="168" y="162" width="20" height="20" />
-              <rect x="196" y="146" width="10" height="10" />
-              <rect x="212" y="166" width="8" height="8" />
-              <rect x="224" y="154" width="8" height="8" />
-            </g>
+          <aside class="notes">
+            The grille tells the phone which corner is which. Far back, where
+            the grille is too small to read, it falls back to the four anchors.
+          </aside>
+        </section>
+
+        <!-- 5. Sync -->
+        <section class="slide">
+          <div class="split">
+            <div>
+              <div class="kicker">Keeping time</div>
+              <h2>One clock across hundreds of phones</h2>
+              <ul>
+                <li>
+                  <strong>Cristian's algorithm</strong>: ping the server, keep
+                  the last 40 samples, trust the one with the lowest round trip.
+                </li>
+                <li>
+                  Corrections <strong>slew at 150 ms/s</strong>, so nothing
+                  visibly jumps mid-show.
+                </li>
+                <li>
+                  Every frame reads the clock and looks up its colour. A late
+                  frame still shows the right colour.
+                </li>
+              </ul>
+            </div>
+            <div class="formula">
+              <span class="c">// phone → server → phone</span>
+              <span>rtt&nbsp;&nbsp;&nbsp;= c1 − c0</span>
+              <span>offset = s1 − (c0 + c1) / 2</span>
+              <span class="c gap">// at Start</span>
+              <span>T0 = server now + 900 ms</span>
+              <span class="c gap">// every frame</span>
+              <span>t = now + offset − T0</span>
+              <span class="a">colour = schedule[t]</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- 6. Warning -->
+        <section class="slide center">
+          <svg
+            viewBox="0 0 24 24"
+            width="120"
+            height="120"
+            fill="none"
+            stroke="#fbbf24"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+            class="warn"
+            style="margin-bottom: 36px"
+          >
+            <path d="M12 3 2 20h20L12 3Z" pathLength="1" />
+            <path d="M12 10v4" pathLength="1" />
+            <path d="M12 17.5h.01" pathLength="1" />
           </svg>
-        </div>
-        <aside class="notes">
-          The grille tells the phone which corner is which. Far back, where the
-          grille is too small to read, it falls back to the four anchors.
-        </aside>
-      </section>
+          <div class="kicker" style="--k: #fbbf24">Heads up</div>
+          <h2>Flashing lights and loud music ahead</h2>
+          <p class="lede">
+            If either bothers you, now's a good time to grab a drink.
+          </p>
+        </section>
 
-      <!-- 5. Sync -->
-      <section class="slide">
-        <div class="split">
-          <div>
-            <div class="kicker">Keeping time</div>
-            <h2>One clock across hundreds of phones</h2>
-            <ul>
-              <li>
-                <strong>Cristian's algorithm</strong>: ping the server, keep the
-                last 40 samples, trust the one with the lowest round trip.
-              </li>
-              <li>
-                Corrections <strong>slew at 150 ms/s</strong>, so nothing
-                visibly jumps mid-show.
-              </li>
-              <li>
-                Every frame reads the clock and looks up its colour. A late
-                frame still shows the right colour.
-              </li>
-            </ul>
-          </div>
-          <div class="formula">
-            <span class="c">// phone → server → phone</span><br />
-            rtt&nbsp;&nbsp;&nbsp;= c1 − c0<br />
-            offset = s1 − (c0 + c1) / 2<br /><br />
-            <span class="c">// at Start</span><br />
-            T0 = server now + 900 ms<br /><br />
-            <span class="c">// every frame</span><br />
-            t = now + offset − T0<br />
-            <span class="a">colour = schedule[t]</span>
-          </div>
-        </div>
-      </section>
+        <!-- 7. Demo -->
+        <section class="slide center" data-mood="loud">
+          <div class="kicker">Live demo</div>
+          <h2 class="boom" style="font-size: 110px">Phones out.</h2>
+          <p class="lede">
+            Scan the code on the big screen, point your camera at it, tap Ready.
+          </p>
+          <p class="footnote">Turn your brightness up.</p>
+        </section>
 
-      <!-- 6. Warning -->
-      <section class="slide center">
-        <svg
-          viewBox="0 0 24 24"
-          width="120"
-          height="120"
-          fill="none"
-          stroke="#fbbf24"
-          stroke-width="1.8"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-          style="margin-bottom: 36px"
-        >
-          <path d="M12 3 2 20h20L12 3Z" />
-          <path d="M12 10v4" />
-          <path d="M12 17.5h.01" />
-        </svg>
-        <div class="kicker" style="color: #fbbf24">Heads up</div>
-        <h2>Flashing lights and loud music ahead</h2>
-        <p class="lede">
-          If either bothers you, now's a good time to grab a drink.
-        </p>
-      </section>
-
-      <!-- 7. Demo -->
-      <section class="slide center">
-        <div class="kicker">Live demo</div>
-        <h2 style="font-size: 110px">Phones out.</h2>
-        <p class="lede">
-          Scan the code on the big screen, point your camera at it, tap Ready.
-        </p>
-        <p class="footnote">Turn your brightness up.</p>
-      </section>
-
-      <!-- 8. Close -->
-      <section class="slide center">
-        <h1 class="wordmark">lightshow</h1>
-        <p class="lede" style="margin-top: 28px">
-          No app. No wristbands. Just the phones already in the room.
-        </p>
-        <p class="footnote">Questions?</p>
-      </section>
+        <!-- 8. Close -->
+        <section class="slide center finale" data-mood="crowd loud">
+          <canvas class="crowd" data-pattern="finale"></canvas>
+          <h1 class="wordmark boom">lightshow</h1>
+          <p class="lede" style="margin-top: 28px">
+            No app. No wristbands. Just the phones already in the room.
+          </p>
+          <p class="footnote">Questions?</p>
+        </section>
+      </div>
     </div>
 
     <div class="progress" id="progress"></div>
@@ -591,6 +1153,26 @@
         const counter = document.getElementById("counter");
         const notesPanel = document.getElementById("notes-panel");
         let current = 0;
+        // When each slide was last shown, for the crowd power-on.
+        const shownAt = slides.map(() => -Infinity);
+        const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+        // Tag each slide's content pieces, in reading order, for the build.
+        const pieces =
+          ".kicker, h1, h2, p, li, .card, .formula, .split > svg, .center > svg";
+        for (const slide of slides) {
+          let i = 0;
+          for (const el of slide.querySelectorAll(pieces)) {
+            if (el.closest(".notes") || el.parentElement.closest(".reveal")) {
+              continue;
+            }
+            el.classList.add("reveal");
+            el.style.setProperty("--i", i++);
+          }
+        }
+        document.querySelectorAll(".formula > span").forEach((line, j) => {
+          line.style.setProperty("--j", j);
+        });
 
         function fit() {
           const scale = Math.min(
@@ -601,8 +1183,16 @@
         }
 
         function show(index) {
+          const previous = current;
           current = Math.max(0, Math.min(slides.length - 1, index));
-          slides.forEach((s, i) => s.classList.toggle("active", i === current));
+          if (current !== previous || shownAt[current] < 0) {
+            shownAt[current] = performance.now();
+          }
+          document.body.dataset.mood = slides[current].dataset.mood || "";
+          slides.forEach((s, i) => {
+            s.classList.toggle("active", i === current);
+            s.classList.toggle("past", i < current);
+          });
           progress.style.width = `${((current + 1) / slides.length) * 100}%`;
           counter.textContent = `${current + 1} / ${slides.length}`;
           const notes = slides[current].querySelector(".notes");
@@ -664,6 +1254,8 @@
 
         window.addEventListener("resize", fit);
         fit();
+        // Settle the hidden state first so the opening slide builds in.
+        stage.getBoundingClientRect();
         show((parseInt(location.hash.slice(1), 10) || 1) - 1);
 
         // Slide 4: LED-style grille behind the anchors.
@@ -685,19 +1277,16 @@
             dot.setAttribute("cy", cy);
             dot.setAttribute("r", 4);
             dot.setAttribute("fill", rand() > 0.5 ? "#6ee7b7" : "#26262f");
+            // Light up from the middle outwards, after the anchors draw.
+            const dist = Math.hypot(cx - 200, cy - 150);
+            dot.style.setProperty("--d", `${900 + dist * 3}ms`);
             grille.appendChild(dot);
           }
         }
 
-        // Slide 1: a crowd of phone "pixels" playing a wave.
-        const canvas = document.getElementById("hero-canvas");
-        const ctx = canvas.getContext("2d");
+        // Slides 1 and 8: a crowd of phone "pixels" playing the show.
         const W = 1600;
         const H = 900;
-        canvas.width = W * 2;
-        canvas.height = H * 2;
-        ctx.scale(2, 2);
-
         const seats = [];
         const rows = 22;
         for (let r = 0; r < rows; r++) {
@@ -723,36 +1312,95 @@
           [96, 165, 250],
           [244, 114, 182],
         ];
+        // The wordmark's rainbow.
+        const rainbow = [
+          [255, 95, 143],
+          [255, 179, 71],
+          [255, 230, 109],
+          [109, 255, 176],
+          [109, 213, 255],
+          [185, 139, 255],
+        ];
 
-        // Colour drifts slowly through the palette, blending between entries.
-        function blend(x) {
-          const n = palette.length;
-          const i = Math.floor(x) % n;
+        // Colour drifts through a palette, blending between entries.
+        function blend(colours, x) {
+          const n = colours.length;
+          const i = ((Math.floor(x) % n) + n) % n;
           const f = x - Math.floor(x);
-          const a = palette[i];
-          const b = palette[(i + 1) % n];
+          const a = colours[i];
+          const b = colours[(i + 1) % n];
           return a.map((v, k) => Math.round(v + (b[k] - v) * f));
         }
 
-        // A slow breathing wave: a soft band of light crosses the crowd from
-        // left to right about every 7 s, rising and falling as it goes.
-        const WAVE_S = 7;
-        function colourAt(seat, t) {
-          const along = seat.u * 0.85 + seat.depth * 0.15 - t / WAVE_S;
-          const breath = 0.5 + 0.5 * Math.sin(along * Math.PI * 2);
-          const level = Math.pow(breath, 2.4);
-          const c = blend(t / 10 + seat.u * 0.6);
-          return { c, level: Math.min(1, level + seat.jitter * 0.15) };
+        const patterns = {
+          // A slow breathing wave: a soft band of light crosses the crowd
+          // from left to right about every 7 s. Phones switch on from the
+          // front row to the back.
+          wave: {
+            colourAt(seat, t) {
+              const along = seat.u * 0.85 + seat.depth * 0.15 - t / 7;
+              const breath = 0.5 + 0.5 * Math.sin(along * Math.PI * 2);
+              const level = Math.pow(breath, 2.4);
+              const c = blend(palette, t / 10 + seat.u * 0.6);
+              return { c, level: Math.min(1, level + seat.jitter * 0.15) };
+            },
+            startsAt: (seat) =>
+              0.3 + seat.depth * 1.2 + Math.abs(seat.u - 0.5) * 0.5,
+          },
+          // Finale: rainbow rings ripple out from the middle of the crowd,
+          // which switches on from the centre outwards.
+          finale: {
+            colourAt(seat, t) {
+              const r = ringDistance(seat);
+              const ring =
+                0.5 + 0.5 * Math.cos((r * 2.4 - t / 1.6) * Math.PI * 2);
+              const level = Math.pow(ring, 5);
+              const angle = Math.atan2(seat.depth - 0.45, seat.u - 0.5);
+              const c = blend(rainbow, angle / (Math.PI / 3) + t / 2);
+              return { c, level: Math.min(1, level + seat.jitter * 0.2) };
+            },
+            startsAt: (seat) => 0.2 + ringDistance(seat) * 2.2,
+          },
+        };
+
+        function ringDistance(seat) {
+          return Math.hypot(seat.u - 0.5, (seat.depth - 0.45) * 1.1);
         }
+
+        const crowds = [...document.querySelectorAll(".crowd")].map(
+          (canvas) => {
+            canvas.width = W * 2;
+            canvas.height = H * 2;
+            const ctx = canvas.getContext("2d");
+            ctx.scale(2, 2);
+            return {
+              ctx,
+              slide: slides.indexOf(canvas.closest(".slide")),
+              pattern: patterns[canvas.dataset.pattern],
+            };
+          },
+        );
 
         function frame(now) {
           requestAnimationFrame(frame);
-          if (!slides[0].classList.contains("active")) return;
-          const t = now / 1000;
+          const crowd = crowds.find((c) => c.slide === current);
+          if (!crowd) return;
+          const { ctx, pattern } = crowd;
+          const still = reduceMotion.matches;
+          const t = still ? 0 : now / 1000;
+          const since = (now - shownAt[current]) / 1000;
           ctx.clearRect(0, 0, W, H);
           for (const s of seats) {
-            const { c, level } = colourAt(s, t);
-            const a = 0.25 + level * 0.75;
+            // Power on: each phone flashes white as it lights.
+            const on = still
+              ? 1
+              : Math.min(1, Math.max(0, (since - pattern.startsAt(s)) / 0.4));
+            if (on === 0) continue;
+            const lit = pattern.colourAt(s, t);
+            const flash = on < 1 ? 1 - on : 0;
+            const c = lit.c.map((v) => Math.round(v + (255 - v) * flash));
+            const level = Math.max(lit.level, flash);
+            const a = (0.25 + level * 0.75) * on;
             ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${a})`;
             if (level > 0.4) {
               ctx.shadowColor = `rgb(${c[0]},${c[1]},${c[2]})`;
