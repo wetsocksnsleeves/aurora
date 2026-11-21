@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { WebSocket } from "ws";
 import { ClockSync } from "@/lib/clock-sync";
+import { decodeFrame, parseSeats } from "@/lib/crowd-stream";
+import type { Point } from "@/lib/types";
 import { injectBug } from "./bugs";
 import {
   DEFAULT_FAULTS,
+  NO_FAULTS,
   drawClientFaults,
   parseRange,
   seededRandom,
@@ -165,4 +169,46 @@ describe("simulated clients", () => {
     },
     60_000,
   );
+});
+
+describe("crowd stream", () => {
+  it("serves seats and colour frames while a show runs", async () => {
+    const frames: Uint8Array[] = [];
+    let seats: (Point | null)[] = [];
+    let ws: WebSocket | null = null;
+    const log = (line: string) => {
+      const port = /^stream: ws:\/\/localhost:(\d+)$/.exec(line)?.[1];
+      if (!port) return;
+      ws = new WebSocket(`ws://127.0.0.1:${port}`);
+      ws.on("message", (data, isBinary) => {
+        if (!isBinary) {
+          const r = parseSeats(String(data));
+          if (r.ok) seats = r.value.seats;
+          return;
+        }
+        const r = decodeFrame(new Uint8Array(data as Buffer), 4);
+        if (r.ok) frames.push(r.value.rgb.slice());
+      });
+    };
+    const report = await runSim({
+      ...DEFAULT_SIM_OPTIONS,
+      clients: 4,
+      faults: NO_FAULTS,
+      target: { kind: "local", waves: 1, compile: true, startLeadMs: 900 },
+      stream: { port: 0 },
+      log,
+    });
+    (ws as WebSocket | null)?.terminate();
+    expect(report.passed).toBe(true);
+    expect(seats).toHaveLength(4);
+    expect(seats.every((s) => s !== null)).toBe(true);
+    expect(frames.length).toBeGreaterThan(5);
+    // Some frame shows the test wave's white flash, which no state colour is.
+    const white = (f: Uint8Array, i: number) =>
+      f[3 * i] === 255 && f[3 * i + 1] === 255 && f[3 * i + 2] === 255;
+    expect(frames.some((f) => [0, 1, 2, 3].some((i) => white(f, i)))).toBe(
+      true,
+    );
+    expect(frames.at(-1)!.length).toBe(12);
+  }, 60_000);
 });

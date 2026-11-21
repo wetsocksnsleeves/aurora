@@ -68,6 +68,12 @@ Checks
   --bug NAME           inject a ClockSync bug; the run should fail.
                        One of: ${BUGS.join(", ")}
   --json               print the report as JSON
+
+Viewer
+  --stream PORT        serve every client's seat and live colour as a
+                       WebSocket on ws://localhost:PORT (format in
+                       lib/crowd-stream.ts). After the report the process
+                       keeps serving until Ctrl+C.
 `;
 
 async function main(): Promise<number> {
@@ -96,6 +102,7 @@ async function main(): Promise<number> {
       "start-timeout": { type: "string" },
       bug: { type: "string" },
       json: { type: "boolean" },
+      stream: { type: "string" },
     },
     strict: true,
   });
@@ -159,6 +166,23 @@ async function main(): Promise<number> {
     process.stderr.write(`sim: ${line}\n`);
   };
 
+  const streamPort =
+    values.stream === undefined ? null : num("stream", values.stream, 0);
+  if (
+    streamPort !== null &&
+    (!Number.isInteger(streamPort) || streamPort > 65535)
+  ) {
+    throw new Error(`--stream must be a port number, got "${values.stream}"`);
+  }
+
+  let printed = false;
+  const print = (report: SimReport) => {
+    printed = true;
+    process.stdout.write(
+      json ? `${JSON.stringify(report, null, 2)}\n` : formatReport(report, bug),
+    );
+  };
+
   return runSim({
     clients: Math.floor(clients),
     seed: num("seed", values.seed, DEFAULT_SIM_OPTIONS.seed),
@@ -176,11 +200,16 @@ async function main(): Promise<number> {
       DEFAULT_SIM_OPTIONS.startTimeoutMs,
     ),
     bug,
+    stream: streamPort === null ? null : { port: streamPort },
+    onReport: async (report) => {
+      if (streamPort === null) return;
+      print(report);
+      log("stream still serving; Ctrl+C to stop");
+      await new Promise<void>((resolve) => process.once("SIGINT", resolve));
+    },
     log,
   }).then((report) => {
-    process.stdout.write(
-      json ? `${JSON.stringify(report, null, 2)}\n` : formatReport(report, bug),
-    );
+    if (!printed) print(report);
     return report.passed ? 0 : 1;
   });
 }
