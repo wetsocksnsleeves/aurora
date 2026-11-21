@@ -1,4 +1,4 @@
-- [ ] pitch deck
+- [x] pitch deck
 - [ ] full 3d mock end to end
   - three.js page: fixed mock arena (raked floor, tiers, stage, orbit camera). 2D venue x → width, y → depth + rake height, so any saved show renders.
   - One glowing phone panel per seat, coloured each frame by that mock client's actual displayed colour.
