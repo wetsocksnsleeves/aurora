@@ -14,7 +14,8 @@ export type DraggedPhone = { id: string; x: number; y: number } | null;
 
 /**
  * Pointer input on the room that isn't drawing: drag a phone to put it
- * somewhere else (sent to the server on release), or click to select the
+ * somewhere else (sent to the server on release; the phone lights up blue
+ * while it's held), or click to select the
  * clip lighting that spot at the playhead. Listens in the capture phase so
  * it runs before the canvas's drawing tools, and only while the select
  * tool is active.
@@ -76,6 +77,8 @@ export function useRoomPointer(
         const { x, y } = local(e);
         dragged.current = { id: phone.id, x, y };
         frame.setPointerCapture(e.pointerId);
+        // Light the phone up so it can be spotted in the room.
+        latest.current.client.highlight(phone.id);
         return;
       }
       if (!canSelect) return;
@@ -107,6 +110,7 @@ export function useRoomPointer(
       if (frame.hasPointerCapture(e.pointerId)) {
         frame.releasePointerCapture(e.pointerId);
       }
+      latest.current.client.highlight(null);
       latest.current.client.placeParticipant(d.id, d.x, d.y);
     };
     frame.addEventListener("pointerdown", onDown, true);

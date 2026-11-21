@@ -108,6 +108,8 @@ describe("parseClientMessage", () => {
         config: { targetWidthM: 4.2, venueWidthM: 30, venueDepthM: 25 },
       },
       { type: "load", showId: "show-1" },
+      { type: "highlight", participantId: "p1" },
+      { type: "highlight", participantId: null },
       { type: "place", participantId: "p1", x: 0.25, y: 0.75 },
     ];
     for (const message of messages) {
@@ -188,6 +190,7 @@ describe("parseServerMessage", () => {
       },
       { type: "start", T0: 12_345.5 },
       { type: "stop" },
+      { type: "highlight", on: true },
       {
         type: "positioning",
         config: { targetWidthM: 3, venueWidthM: 20, venueDepthM: 20 },
@@ -215,6 +218,7 @@ describe("parseServerMessage", () => {
       },
       {
         type: "participants",
+        room: { widthM: 12.5, depthM: 9 },
         list: [
           {
             id: "p1",

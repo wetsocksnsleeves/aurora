@@ -175,6 +175,8 @@ describe("message routing", () => {
     expect(await host.next("participants")).toEqual({
       type: "participants",
       list: [],
+      // Without crowd fitting the room is the whole positioning box.
+      room: { widthM: 200, depthM: 200 },
     });
     expect(store.getSession(session.code)).toBeDefined();
   });
@@ -941,6 +943,44 @@ describe("rooms (SPEC 2.5)", () => {
     await vi.waitFor(() =>
       expect(store.summaries(session)[0]!.x).not.toBe(0.9),
     );
+  });
+
+  it("lights up the phone the host is moving, and only that one", async () => {
+    const { url } = await listen({ fitCrowd: true, refitDelayMs: 20 });
+    const { host, code } = await hostSession(url);
+    const a = await standbyPhone(url, code, 0.45);
+    const b = await standbyPhone(url, code, 0.55);
+    host.send({ type: "highlight", participantId: a.id });
+    expect(await a.phone.next("highlight")).toEqual({
+      type: "highlight",
+      on: true,
+    });
+    // Moving to the other phone turns the first off.
+    host.send({ type: "highlight", participantId: b.id });
+    expect(await a.phone.next("highlight")).toMatchObject({ on: false });
+    expect(await b.phone.next("highlight")).toMatchObject({ on: true });
+    // Phones can't light each other up.
+    a.phone.send({ type: "highlight", participantId: b.id });
+    expect((await a.phone.next("error")).reason).toBe("not-host");
+    // The host leaving mid-drag turns it off.
+    await host.close();
+    expect(await b.phone.next("highlight")).toMatchObject({ on: false });
+  });
+
+  it("tells the host how big the room is", async () => {
+    const { url } = await listen({ fitCrowd: true, refitDelayMs: 20 });
+    const host = await connect(url);
+    host.send({ type: "host", showId: "test" });
+    const { code } = await host.next("session");
+    let message = await host.next("participants");
+    // A new room is the minimum room: 8 m across, 6 m deep.
+    expect(message.room!.widthM).toBeCloseTo(8, 6);
+    expect(message.room!.depthM).toBeCloseTo(6, 6);
+    await standbyPhone(url, code, 0.5 - 10 / 200);
+    // Once the crowd is fitted, 10 m either side plus the margin.
+    do message = await host.next("participants");
+    while (message.room!.widthM < 20);
+    expect(message.room!.widthM).toBeCloseTo(21.2, 1);
   });
 
   it("brings a stored room back after a restart, with its code and host token", async () => {

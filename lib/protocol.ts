@@ -125,7 +125,8 @@ export type ClientMessage =
   | StopRequest
   | PositioningRequest
   | LoadShowRequest
-  | PlaceRequest;
+  | PlaceRequest
+  | HighlightRequest;
 
 export type ClientMessageType = ClientMessage["type"];
 
@@ -218,7 +219,26 @@ export type ParticipantSummary = {
 export type ParticipantsMessage = {
   type: "participants";
   list: ParticipantSummary[];
+  /**
+   * The real size of the room the list is drawn in (metres): positions are
+   * fitted to the crowd, so this changes as people find their seats.
+   */
+  room?: RoomSize;
 };
+
+export type RoomSize = { widthM: number; depthM: number };
+
+/**
+ * Host to server: light up this participant's phone so the host can spot
+ * it in the crowd while moving it (null: nobody).
+ */
+export type HighlightRequest = {
+  type: "highlight";
+  participantId: string | null;
+};
+
+/** Server to participant: the host is moving you; light up (or stop). */
+export type HighlightMessage = { type: "highlight"; on: boolean };
 
 export const ERROR_REASONS = [
   "bad-message",
@@ -252,6 +272,7 @@ export type ServerMessage =
   | SessionMessage
   | ParticipantsMessage
   | PositioningMessage
+  | HighlightMessage
   | ErrorMessage;
 
 export type ServerMessageType = ServerMessage["type"];
@@ -377,6 +398,14 @@ function toClientMessage(v: Rec): ClientMessage {
       return { type: "positioning", config: positioningConfig(v.config) };
     case "load":
       return { type: "load", showId: str(v, "showId", MAX_ID_LENGTH) };
+    case "highlight":
+      return {
+        type: "highlight",
+        participantId:
+          v.participantId === null
+            ? null
+            : str(v, "participantId", MAX_ID_LENGTH),
+      };
     case "place":
       return {
         type: "place",
@@ -434,11 +463,22 @@ function toServerMessage(v: Rec): ServerMessage {
       }
       return msg;
     }
-    case "participants":
-      return {
+    case "participants": {
+      const message: ParticipantsMessage = {
         type: "participants",
         list: arr(v, "list").map(participantSummary),
       };
+      if (v.room !== undefined && v.room !== null) {
+        const room = rec(v, "room");
+        message.room = {
+          widthM: num(room, "widthM"),
+          depthM: num(room, "depthM"),
+        };
+      }
+      return message;
+    }
+    case "highlight":
+      return { type: "highlight", on: bool(v, "on") };
     case "positioning":
       return { type: "positioning", config: positioningConfig(v.config) };
     case "error": {

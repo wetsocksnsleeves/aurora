@@ -467,6 +467,18 @@ export class SessionStore {
     return this.staleSchedules(session);
   }
 
+  /** How big (metres) the room the host draws is: the crowd's box. */
+  roomSize(session: Session): { widthM: number; depthM: number } {
+    const { venueWidthM, venueDepthM } = session.positioning;
+    const box = session.crowd;
+    return box
+      ? {
+          widthM: (box.maxX - box.minX) * venueWidthM,
+          depthM: (box.maxY - box.minY) * venueDepthM,
+        }
+      : { widthM: venueWidthM, depthM: venueDepthM };
+  }
+
   /** A participant's seat in show coordinates: placed, or fitted to the crowd. */
   showSeat(session: Session, p: Participant): Point | null {
     if (p.placed) return p.placed;

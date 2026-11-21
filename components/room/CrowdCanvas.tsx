@@ -11,6 +11,8 @@ import type { DraggedPhone } from "./use-room-pointer";
 import styles from "./room.module.css";
 
 const UNLIT = "#000000";
+/** The colour a phone being moved shows, on the phone and here. */
+export const MOVING_COLOR = "#2d8bff";
 /** Unlit phones are black; draw them dim grey so the crowd stays visible. */
 const UNLIT_DRAWN = "#2a2a2a";
 
@@ -80,7 +82,9 @@ export function CrowdCanvas({
         if (p.x === null || p.y === null) continue;
         let color: string;
         let alpha = 1;
-        if (live) {
+        if (moving && moving.id === listed.id) {
+          color = MOVING_COLOR;
+        } else if (live) {
           color = live(p);
           if (color === UNLIT) color = UNLIT_DRAWN;
           if (p.state !== "playing") alpha = 0.35;
@@ -114,7 +118,7 @@ export function CrowdCanvas({
       ctx.shadowBlur = 0;
       if (moving) {
         // A ring around the phone being moved.
-        ctx.strokeStyle = "#ffffff";
+        ctx.strokeStyle = MOVING_COLOR;
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(

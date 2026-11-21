@@ -261,6 +261,8 @@ export class WsRouter {
   private readonly now: () => number;
   /** Host sockets per session code. */
   private readonly hosts = new Map<string, Set<Connection>>();
+  /** The participant each room's host is moving, by session code. */
+  private readonly highlighted = new Map<string, string>();
   /** Pending crowd refits per session code. */
   private readonly refitTimers = new Map<
     string,
@@ -383,10 +385,15 @@ export class WsRouter {
       t.timer = null;
       t.lastSentAt = Date.now();
     }
-    this.sendToHosts(session, {
+    this.sendToHosts(session, this.participantsMessage(session));
+  }
+
+  private participantsMessage(session: Session): ServerMessage {
+    return {
       type: "participants",
       list: this.store.summaries(session),
-    });
+      room: this.store.roomSize(session),
+    };
   }
 
   // -- Receiving -------------------------------------------------------------
@@ -434,6 +441,7 @@ export class WsRouter {
       }
     } else if (role.kind === "host") {
       this.hosts.get(role.session.code)?.delete(conn);
+      this.setHighlight(role.session.code, null);
     }
   }
 
@@ -449,6 +457,7 @@ export class WsRouter {
     positioning: (conn, msg) => this.onPositioning(conn, msg),
     load: (conn, msg) => this.onLoad(conn, msg),
     place: (conn, msg) => this.onPlace(conn, msg),
+    highlight: (conn, msg) => this.onHighlight(conn, msg),
   };
 
   /**
@@ -636,16 +645,44 @@ export class WsRouter {
 
     // Only the creating host learns the token; re-attaching hosts have it.
     this.send(conn, this.sessionMessage(conn, session, created));
-    this.send(conn, {
-      type: "participants",
-      list: this.store.summaries(session),
-    });
+    this.send(conn, this.participantsMessage(session));
   }
 
   /**
    * Host loads a show into the room, or reloads it after saving an edit
    * (SPEC 2.5). Phones stay connected and get schedules for the new show.
    */
+  /**
+   * Light up the phone the host is moving, and turn off the last one. One
+   * per room; cleared when that host disconnects.
+   */
+  private onHighlight(
+    conn: Connection,
+    msg: MessageOfType<ClientMessage, "highlight">,
+  ) {
+    const session = this.requireHost(conn);
+    if (msg.participantId !== null) {
+      this.store.getParticipant(session, msg.participantId);
+    }
+    this.setHighlight(session.code, msg.participantId);
+  }
+
+  private setHighlight(code: string, participantId: string | null): void {
+    const previous = this.highlighted.get(code) ?? null;
+    if (previous === participantId) return;
+    if (previous) {
+      const socket = this.participantSockets.get(previous);
+      if (socket) this.send(socket, { type: "highlight", on: false });
+    }
+    if (participantId) {
+      this.highlighted.set(code, participantId);
+      const socket = this.participantSockets.get(participantId);
+      if (socket) this.send(socket, { type: "highlight", on: true });
+    } else {
+      this.highlighted.delete(code);
+    }
+  }
+
   /** The host dragged a phone to a new spot (SPEC 2.5). */
   private onPlace(
     conn: Connection,

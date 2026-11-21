@@ -10,6 +10,7 @@ import {
   parseServerMessage,
   type ClientMessage,
   type ParticipantSummary,
+  type RoomSize,
   type ServerMessage,
   type SessionMessage,
 } from "@/lib/protocol";
@@ -67,6 +68,8 @@ export type HostSnapshot = {
   /** The last `session` message, or null before the first. */
   session: SessionMessage | null;
   participants: ParticipantSummary[];
+  /** How big the room the participants are drawn in is, once known. */
+  room: RoomSize | null;
   /** Server-clock start time while a show runs, else null. */
   T0: number | null;
   /** The host's own `ClockSync` passed its ready gate. */
@@ -131,6 +134,7 @@ export class HostClient {
       connection: "connecting",
       session: null,
       participants: [],
+      room: null,
       T0: null,
       clockReady: false,
       lastError: null,
@@ -212,6 +216,11 @@ export class HostClient {
     return this.send({ type: "place", participantId, x, y });
   }
 
+  /** Light up one phone so the host can spot it in the crowd (null: none). */
+  highlight(participantId: string | null): boolean {
+    return this.send({ type: "highlight", participantId });
+  }
+
   /** Call on `visibilitychange`: a returning tab resyncs its clock. */
   setVisible(visible: boolean): void {
     if (visible && this.running) this.clock.onVisible();
@@ -289,7 +298,10 @@ export class HostClient {
         this.update({ session: message, T0: message.T0 });
         return;
       case "participants":
-        this.update({ participants: message.list });
+        this.update({
+          participants: message.list,
+          room: message.room ?? this.snapshot.room,
+        });
         return;
       case "start":
         this.update({ T0: message.T0, lastError: null });
