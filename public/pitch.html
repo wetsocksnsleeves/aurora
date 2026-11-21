@@ -11,6 +11,10 @@
       Keys: → / Space / PageDown next, ← / PageUp back, Home / End,
             F fullscreen, N speaker notes. Click or swipe also works.
       Add a slide: copy a <section class="slide">. Notes go in <aside class="notes">.
+
+      The big screen (/sessions/<code>/screen) shows this deck in a layer over
+      its QR code. Reaching the data-demo slide there tells the big screen to
+      hide the deck; the deck waits on the next slide for "Back to deck".
     -->
     <style>
       :root {
@@ -560,13 +564,17 @@
       </section>
 
       <!-- 7. Demo -->
-      <section class="slide center">
+      <section class="slide center" data-demo>
         <div class="kicker">Live demo</div>
         <h2 style="font-size: 110px">Phones out.</h2>
         <p class="lede">
           Scan the code on the big screen, point your camera at it, tap Ready.
         </p>
         <p class="footnote">Turn your brightness up.</p>
+        <aside class="notes">
+          On the big screen, this slide is skipped: the deck hides and the QR
+          code shows. Its "Back to deck" button returns to the closing slide.
+        </aside>
       </section>
 
       <!-- 8. Close -->
@@ -592,6 +600,19 @@
         const notesPanel = document.getElementById("notes-panel");
         let current = 0;
 
+        // Embedded in the big screen page, the deck sends it messages (see
+        // app/sessions/[code]/screen/pitch-deck.ts). Only a page on this site
+        // receives them.
+        const demo = slides.findIndex((s) => s.hasAttribute("data-demo"));
+        const embedded = window.parent !== window;
+        function tell(action) {
+          window.parent.postMessage(
+            { type: "lightshow-deck", action },
+            location.origin,
+          );
+        }
+        const clamp = (i) => Math.max(0, Math.min(slides.length - 1, i));
+
         function fit() {
           const scale = Math.min(
             window.innerWidth / 1600,
@@ -601,7 +622,14 @@
         }
 
         function show(index) {
-          current = Math.max(0, Math.min(slides.length - 1, index));
+          index = clamp(index);
+          if (embedded && index === demo && current !== demo) {
+            // Hand over to the big screen's QR code, and wait one slide past
+            // the demo in the direction of travel for when the deck returns.
+            tell("demo");
+            index = clamp(index > current ? demo + 1 : demo - 1);
+          }
+          current = index;
           slides.forEach((s, i) => s.classList.toggle("active", i === current));
           progress.style.width = `${((current + 1) / slides.length) * 100}%`;
           counter.textContent = `${current + 1} / ${slides.length}`;
@@ -636,7 +664,8 @@
               break;
             case "f":
             case "F":
-              if (document.fullscreenElement) document.exitFullscreen();
+              if (embedded) tell("fullscreen");
+              else if (document.fullscreenElement) document.exitFullscreen();
               else document.documentElement.requestFullscreen?.();
               break;
             case "n":
