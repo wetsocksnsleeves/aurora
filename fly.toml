@@ -19,10 +19,18 @@ primary_region = "syd"
   internal_port = 8080
   force_https = true
   # Sessions live in memory and phones hold WebSockets: keep one machine.
-  auto_stop_machines = "stop"
+  # Demo: never stop the machine, so the first visitor gets no cold start.
+  auto_stop_machines = "off"
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
+
+  # Every phone holds a WebSocket. Fly's default limits (soft 20, hard 25)
+  # would queue or refuse phones beyond about 25.
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 1000
+    hard_limit = 1000
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "512mb"
+  size = "shared-cpu-2x"
+  memory = "1gb"
