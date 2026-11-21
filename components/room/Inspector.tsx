@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, type ReactNode } from "react";
+import { coverUrl } from "@/components/editor/api";
 import { clipKindLabel, type ClipPatch } from "@/components/editor/clips";
 import { formatTime } from "@/components/editor/snap";
 import { newId } from "@/components/editor/store";
@@ -490,10 +491,50 @@ function BlinkFields({
   );
 }
 
+/** The show's track: cover art (if the file has some), title and artist. */
+function TrackCard({
+  fileId,
+  title,
+  artist,
+}: {
+  fileId: string;
+  title?: string;
+  artist?: string;
+}) {
+  // Keyed by fileId, so a new track gets a fresh try at loading its cover.
+  const [hasCover, setHasCover] = useState(true);
+  return (
+    <div className={styles.track}>
+      <div className={styles.trackCover} aria-hidden="true">
+        {hasCover ? (
+          // A same-origin API image whose size is fixed by CSS; next/image
+          // would add nothing here.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={coverUrl(fileId)}
+            alt=""
+            onError={() => setHasCover(false)}
+          />
+        ) : (
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M9 18.5a2.5 2.5 0 1 1-2.5-2.5c.17 0 .34.02.5.05V5.5l12-2.5v12.5a2.5 2.5 0 1 1-2.5-2.5c.17 0 .34.02.5.05V7.1L9 8.8z" />
+          </svg>
+        )}
+      </div>
+      <div className={styles.trackText}>
+        <b title={title}>{title ?? "Untitled track"}</b>
+        {artist ? <span title={artist}>{artist}</span> : null}
+      </div>
+    </div>
+  );
+}
+
 function ShowPanel({ toast }: { toast: Toast }) {
   const store = useEditorStore();
   const fileId = useEditorSelector((s) => s.show.audio.fileId);
   const durationMs = useEditorSelector((s) => s.show.audio.durationMs);
+  const title = useEditorSelector((s) => s.show.audio.title);
+  const artist = useEditorSelector((s) => s.show.audio.artist);
   const status = useEditorSelector((s) => s.audioStatus);
   const error = useEditorSelector((s) => s.audioError);
   const gesture = useGesture();
@@ -515,6 +556,14 @@ function ShowPanel({ toast }: { toast: Toast }) {
                   : formatTime(durationMs).replace(/\.\d+$/, "")
         }
       >
+        {fileId ? (
+          <TrackCard
+            key={fileId}
+            fileId={fileId}
+            title={title}
+            artist={artist}
+          />
+        ) : null}
         <button
           type="button"
           className={fileId ? styles.ghost : styles.primary}

@@ -1,6 +1,7 @@
 import { uploadAudio } from "@/components/editor/api";
 import type { EditorStore } from "@/components/editor/store";
 import { analyseAudio } from "@/lib/audio-analysis";
+import { readAudioTags, titleFromFileName } from "@/lib/audio-tags";
 import { generateLightShow } from "@/lib/light-show-generator";
 import type { Toast } from "./edit-actions";
 import type { DecodedAudio } from "./timeline/playback";
@@ -21,13 +22,21 @@ export function pickMusic(store: EditorStore, toast: Toast): void {
     store.dispatch({ type: "setAudioStatus", status: "uploading" });
     toast(`Uploading ${file.name}…`);
     try {
-      const { fileId } = await uploadAudio(file);
+      const [{ fileId }, { title, artist }] = await Promise.all([
+        uploadAudio(file),
+        trackInfo(file),
+      ]);
       // The length is filled in once the track has decoded.
       store.dispatch({
         type: "setShowAudio",
-        audio: { fileId, durationMs: 0 },
+        audio: {
+          fileId,
+          durationMs: 0,
+          title,
+          ...(artist ? { artist } : {}),
+        },
       });
-      toast("Music added");
+      toast(`Added “${title}”${artist ? ` by ${artist}` : ""}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       store.dispatch({
@@ -39,6 +48,22 @@ export function pickMusic(store: EditorStore, toast: Toast): void {
     }
   };
   input.click();
+}
+
+/** Title and artist from the file's tags, else the title from its name. */
+async function trackInfo(
+  file: File,
+): Promise<{ title: string; artist?: string }> {
+  let tags: { title?: string; artist?: string } = {};
+  try {
+    tags = readAudioTags(new Uint8Array(await file.arrayBuffer()));
+  } catch {
+    // Unreadable file: fall back to the name. The upload reports real errors.
+  }
+  return {
+    title: tags.title ?? titleFromFileName(file.name),
+    artist: tags.artist,
+  };
 }
 
 /**

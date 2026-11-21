@@ -17,7 +17,12 @@ export const PHONK_SHOW: Show = {
   id: PHONK_SHOW_ID,
   name: "PHONK DA FAVELADA",
   venue: TEST_VENUE,
-  audio: { fileId: PHONK_AUDIO_FILE_ID, durationMs: phonk.durationMs },
+  audio: {
+    fileId: PHONK_AUDIO_FILE_ID,
+    durationMs: phonk.durationMs,
+    title: "PHONK DA FAVELADA",
+    artist: "2KE",
+  },
   clips: phonk.clips as Clip[],
   createdAt: "2026-11-21T00:00:00.000Z",
   updatedAt: "2026-11-21T00:00:00.000Z",

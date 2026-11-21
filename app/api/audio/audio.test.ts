@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { MAX_AUDIO_BYTES } from "@/server/audio-store";
 import { withTempDataDir } from "@/server/testing/temp-data-dir";
+import * as cover from "./[fileId]/cover/route";
 import * as item from "./[fileId]/route";
 import * as upload from "./route";
 
@@ -39,6 +40,56 @@ async function uploadMp3(): Promise<string> {
   expect(body.url).toBe(`/api/audio/${body.fileId}`);
   return body.fileId;
 }
+
+describe("/api/audio/<fileId>/cover", () => {
+  it("serves the cover embedded in the audio file", async () => {
+    const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 7];
+    const apic = [
+      0,
+      ...Array.from("image/png", (c) => c.charCodeAt(0)),
+      0,
+      3,
+      0,
+      ...png,
+    ];
+    const tag = Uint8Array.from([
+      ...Array.from("ID3", (c) => c.charCodeAt(0)),
+      3,
+      0,
+      0,
+      0,
+      0,
+      0,
+      10 + apic.length,
+      ...Array.from("APIC", (c) => c.charCodeAt(0)),
+      0,
+      0,
+      0,
+      apic.length,
+      0,
+      0,
+      ...apic,
+    ]);
+    const up = await upload.POST(
+      uploadRequest(new File([tag, bytes], "t.mp3", { type: "audio/mpeg" })),
+    );
+    const { fileId } = (await up.json()) as { fileId: string };
+    const res = await cover.GET(getRequest(), ctx(fileId));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/png");
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(
+      Uint8Array.from(png),
+    );
+  });
+
+  it("replies 404 when the file has no cover or doesn't exist", async () => {
+    const fileId = await uploadMp3();
+    expect((await cover.GET(getRequest(), ctx(fileId))).status).toBe(404);
+    const missing = "00000000-0000-0000-0000-000000000000.mp3";
+    expect((await cover.GET(getRequest(), ctx(missing))).status).toBe(404);
+    expect((await cover.GET(getRequest(), ctx("../x"))).status).toBe(404);
+  });
+});
 
 describe("/api/audio", () => {
   it("stores the upload under data/audio/<id>.<ext>", async () => {

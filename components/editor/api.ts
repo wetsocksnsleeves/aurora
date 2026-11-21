@@ -55,6 +55,11 @@ export function audioUrl(fileId: string): string {
   return `/api/audio/${encodeURIComponent(fileId)}`;
 }
 
+/** Cover art embedded in the audio file; 404 when it has none. */
+export function coverUrl(fileId: string): string {
+  return `${audioUrl(fileId)}/cover`;
+}
+
 /** One row of `GET /api/shows` (`ShowSummary` in `server/db.ts`). */
 export type ShowListItem = Pick<
   Show,

@@ -674,6 +674,7 @@
   line-height: 1.35;
   text-align: left;
   text-decoration: none;
+  overflow-wrap: anywhere;
 }
 
 .steps a,
@@ -773,6 +774,60 @@
   flex-direction: column;
   gap: 8px;
   min-width: 0;
+}
+
+.track {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+.trackCover {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 6px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: rgb(255 255 255 / 0.06);
+  color: var(--faint);
+}
+
+.trackCover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.trackText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.trackText b,
+.trackText span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trackText b {
+  font-weight: 500;
+}
+
+.trackText span {
+  color: var(--dim);
+  font-size: 12px;
 }
 
 .fieldRow {

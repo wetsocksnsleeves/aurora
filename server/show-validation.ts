@@ -113,10 +113,28 @@ function parseAudio(value: unknown): Show["audio"] {
   if (value.fileId !== "" && !isAudioFileId(value.fileId)) {
     fail("audio.fileId is not a known audio file id");
   }
-  return {
+  const audio: Show["audio"] = {
     fileId: value.fileId,
     durationMs: nonNegative(value.durationMs, "audio.durationMs"),
   };
+  const title = optionalLabel(value.title, "audio.title");
+  const artist = optionalLabel(value.artist, "audio.artist");
+  if (title) audio.title = title;
+  if (artist) audio.artist = artist;
+  return audio;
+}
+
+const MAX_AUDIO_LABEL = 200;
+
+/** An optional track title or artist: trimmed, empty treated as absent. */
+function optionalLabel(value: unknown, at: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") fail(`${at} must be a string`);
+  const text = value.trim();
+  if (text.length > MAX_AUDIO_LABEL) {
+    fail(`${at} must be at most ${MAX_AUDIO_LABEL} characters`);
+  }
+  return text === "" ? undefined : text;
 }
 
 const COLOR = /^#[0-9a-fA-F]{6}$/;

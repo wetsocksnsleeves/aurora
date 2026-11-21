@@ -23,6 +23,7 @@ export function Coach({
 }) {
   const store = useEditorStore();
   const hasMusic = useEditorSelector((s) => s.show.audio.fileId !== "");
+  const title = useEditorSelector((s) => s.show.audio.title);
   const steps: {
     done: boolean;
     text: string;
@@ -39,7 +40,11 @@ export function Coach({
     },
     {
       done: hasMusic,
-      text: hasMusic ? "Music added" : "Add music (optional)",
+      text: hasMusic
+        ? title
+          ? `Music added: ${title}`
+          : "Music added"
+        : "Add music (optional)",
       action: hasMusic ? undefined : () => pickMusic(store, toast),
     },
     {

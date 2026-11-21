@@ -90,7 +90,12 @@ export function useDecodedAudio(
         setAudio(a);
         store.dispatch({
           type: "setShowAudio",
-          audio: { fileId, durationMs: a.durationMs },
+          // Keep the title and artist; only the length was measured.
+          audio: {
+            ...store.getState().show.audio,
+            fileId,
+            durationMs: a.durationMs,
+          },
         });
         store.dispatch({ type: "setAudioStatus", status: "ready" });
       },
