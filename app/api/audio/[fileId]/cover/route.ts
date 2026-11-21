@@ -1,4 +1,4 @@
-import { readCover } from "@/server/audio-cover";
+import { readCover } from "@/server/audio-info";
 import { guardApiRequest } from "@/server/http";
 
 export const runtime = "nodejs";

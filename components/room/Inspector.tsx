@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useState, type ReactNode } from "react";
-import { coverUrl } from "@/components/editor/api";
 import { clipKindLabel, type ClipPatch } from "@/components/editor/clips";
 import { formatTime } from "@/components/editor/snap";
 import { newId } from "@/components/editor/store";
@@ -20,7 +19,7 @@ import {
 } from "./edit-actions";
 import { SWATCHES } from "./effects";
 import { ClipIcon } from "./icons";
-import { pickMusic } from "./music";
+import { TrackCover, useMusicChooser } from "./MusicChooser";
 import styles from "./room.module.css";
 
 /**
@@ -69,7 +68,7 @@ export function Inspector({
       ) : clip ? (
         <ClipPanel clip={clip} toast={toast} />
       ) : (
-        <ShowPanel toast={toast} />
+        <ShowPanel />
       )}
     </aside>
   );
@@ -501,26 +500,9 @@ function TrackCard({
   title?: string;
   artist?: string;
 }) {
-  // Keyed by fileId, so a new track gets a fresh try at loading its cover.
-  const [hasCover, setHasCover] = useState(true);
   return (
     <div className={styles.track}>
-      <div className={styles.trackCover} aria-hidden="true">
-        {hasCover ? (
-          // A same-origin API image whose size is fixed by CSS; next/image
-          // would add nothing here.
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={coverUrl(fileId)}
-            alt=""
-            onError={() => setHasCover(false)}
-          />
-        ) : (
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-            <path d="M9 18.5a2.5 2.5 0 1 1-2.5-2.5c.17 0 .34.02.5.05V5.5l12-2.5v12.5a2.5 2.5 0 1 1-2.5-2.5c.17 0 .34.02.5.05V7.1L9 8.8z" />
-          </svg>
-        )}
-      </div>
+      <TrackCover fileId={fileId} size={44} />
       <div className={styles.trackText}>
         <b title={title}>{title ?? "Untitled track"}</b>
         {artist ? <span title={artist}>{artist}</span> : null}
@@ -529,12 +511,13 @@ function TrackCard({
   );
 }
 
-function ShowPanel({ toast }: { toast: Toast }) {
+function ShowPanel() {
   const store = useEditorStore();
   const fileId = useEditorSelector((s) => s.show.audio.fileId);
   const durationMs = useEditorSelector((s) => s.show.audio.durationMs);
   const title = useEditorSelector((s) => s.show.audio.title);
   const artist = useEditorSelector((s) => s.show.audio.artist);
+  const chooseMusic = useMusicChooser();
   const status = useEditorSelector((s) => s.audioStatus);
   const error = useEditorSelector((s) => s.audioError);
   const gesture = useGesture();
@@ -557,17 +540,12 @@ function ShowPanel({ toast }: { toast: Toast }) {
         }
       >
         {fileId ? (
-          <TrackCard
-            key={fileId}
-            fileId={fileId}
-            title={title}
-            artist={artist}
-          />
+          <TrackCard fileId={fileId} title={title} artist={artist} />
         ) : null}
         <button
           type="button"
           className={fileId ? styles.ghost : styles.primary}
-          onClick={() => pickMusic(store, toast)}
+          onClick={chooseMusic}
         >
           {fileId ? "Replace music" : "Add music"}
         </button>

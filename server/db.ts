@@ -125,6 +125,44 @@ export function listShows(): ShowSummary[] {
   }));
 }
 
+type AudioRow = {
+  file_id: string;
+  duration_ms: number | null;
+  title: string | null;
+  artist: string | null;
+};
+
+/**
+ * The music used by saved shows, most recently updated show first, one entry
+ * per file. A title or artist missing from the newest show that uses a file
+ * is taken from an older one.
+ */
+export function listRecentAudio(limit = 12): Show["audio"][] {
+  const rows = getDb()
+    .prepare(
+      `SELECT json_extract(data, '$.audio.fileId') AS file_id,
+        json_extract(data, '$.audio.durationMs') AS duration_ms,
+        json_extract(data, '$.audio.title') AS title,
+        json_extract(data, '$.audio.artist') AS artist
+      FROM shows
+      WHERE file_id IS NOT NULL AND file_id != ''
+      ORDER BY updated_at DESC, id`,
+    )
+    .all() as AudioRow[];
+  const byFile = new Map<string, Show["audio"]>();
+  for (const r of rows) {
+    if (typeof r.file_id !== "string") continue;
+    const seen = byFile.get(r.file_id);
+    if (!seen && byFile.size >= limit) continue;
+    const track = seen ?? { fileId: r.file_id, durationMs: 0 };
+    track.durationMs ||= Math.max(0, r.duration_ms ?? 0);
+    if (!track.title && typeof r.title === "string") track.title = r.title;
+    if (!track.artist && typeof r.artist === "string") track.artist = r.artist;
+    byFile.set(r.file_id, track);
+  }
+  return [...byFile.values()];
+}
+
 export function getShow(id: string): Show | null {
   const row = getDb().prepare("SELECT * FROM shows WHERE id = ?").get(id) as
     ShowRow | undefined;

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { readCover } from "./audio-cover";
+import { readAudioInfo, readCover } from "./audio-info";
 import { audioDir } from "./data-dir";
 import { withTempDataDir } from "./testing/temp-data-dir";
 
@@ -86,6 +86,16 @@ describe("readCover", () => {
       cat(latin1("ID3"), [3, 0, 0, 127, 127, 127, 127]),
     );
     expect(await readCover(fileId)).toBeNull();
+  });
+
+  it("reads the title and artist too", async () => {
+    const title = cat([0], latin1("Tagged"));
+    const frame = cat(latin1("TIT2"), be32(title.length), [0, 0], title);
+    const fileId = write(
+      "mp3",
+      cat(latin1("ID3"), [3, 0, 0, 0, 0, 0, frame.length], frame),
+    );
+    expect(await readAudioInfo(fileId)).toEqual({ title: "Tagged" });
   });
 
   it("shares one lookup between concurrent requests", async () => {

@@ -1,5 +1,9 @@
 import fs from "node:fs";
-import { readAudioTags, type AudioPicture } from "@/lib/audio-tags";
+import {
+  readAudioTags,
+  type AudioPicture,
+  type AudioTags,
+} from "@/lib/audio-tags";
 import { audioFilePath, isAudioFileId } from "./audio-store";
 
 /** Most bytes read from one file to find its tags. */
@@ -9,18 +13,19 @@ export const MAX_COVER_BYTES = 5 * 1024 * 1024;
 /** Total picture bytes kept in the cache. */
 const CACHE_BYTES = 32 * 1024 * 1024;
 
-/** Audio files never change, so a file's cover is looked up once. */
-const cache = new Map<string, AudioPicture | null>();
+/** Audio files never change, so a file's tags are read once. */
+const cache = new Map<string, AudioTags>();
 let cachedBytes = 0;
 /** Lookups in progress, so concurrent requests share one read. */
-const pending = new Map<string, Promise<AudioPicture | null>>();
+const pending = new Map<string, Promise<AudioTags>>();
 
 /**
- * The cover art embedded in an uploaded (or built-in) audio file, or null
- * when it has none, it is too large, or the file is missing.
+ * The title, artist and cover art embedded in an uploaded (or built-in)
+ * audio file. Empty when it has no tags or the file is missing; a cover
+ * over MAX_COVER_BYTES is dropped.
  */
-export function readCover(fileId: string): Promise<AudioPicture | null> {
-  if (!isAudioFileId(fileId)) return Promise.resolve(null);
+export function readAudioInfo(fileId: string): Promise<AudioTags> {
+  if (!isAudioFileId(fileId)) return Promise.resolve({});
   const cached = cache.get(fileId);
   if (cached !== undefined) return Promise.resolve(cached);
   let lookup = pending.get(fileId);
@@ -31,31 +36,37 @@ export function readCover(fileId: string): Promise<AudioPicture | null> {
   return lookup;
 }
 
-async function lookUp(fileId: string): Promise<AudioPicture | null> {
-  let cover: AudioPicture | null;
-  try {
-    const bytes = await tagBytes(audioFilePath(fileId));
-    cover = readAudioTags(bytes).picture ?? null;
-  } catch {
-    return null; // Missing file: don't cache, it may be uploaded later.
-  }
-  if (cover && cover.data.length > MAX_COVER_BYTES) cover = null;
-  remember(fileId, cover);
-  return cover;
+/** The cover art embedded in the file, or null when it has none. */
+export async function readCover(fileId: string): Promise<AudioPicture | null> {
+  return (await readAudioInfo(fileId)).picture ?? null;
 }
 
-function remember(fileId: string, cover: AudioPicture | null): void {
-  const size = cover?.data.length ?? 0;
+async function lookUp(fileId: string): Promise<AudioTags> {
+  let tags: AudioTags;
+  try {
+    tags = readAudioTags(await tagBytes(audioFilePath(fileId)));
+  } catch {
+    return {}; // Missing file: don't cache, it may be uploaded later.
+  }
+  if (tags.picture && tags.picture.data.length > MAX_COVER_BYTES) {
+    delete tags.picture;
+  }
+  remember(fileId, tags);
+  return tags;
+}
+
+function remember(fileId: string, tags: AudioTags): void {
+  const size = tags.picture?.data.length ?? 0;
   // Evict the oldest entries until it fits, and cap the entry count too.
   while (
     cache.size > 0 &&
     (cachedBytes + size > CACHE_BYTES || cache.size >= 256)
   ) {
-    const [oldest, picture] = cache.entries().next().value!;
+    const [oldest, old] = cache.entries().next().value!;
     cache.delete(oldest);
-    cachedBytes -= picture?.data.length ?? 0;
+    cachedBytes -= old.picture?.data.length ?? 0;
   }
-  cache.set(fileId, cover);
+  cache.set(fileId, tags);
   cachedBytes += size;
 }
 
