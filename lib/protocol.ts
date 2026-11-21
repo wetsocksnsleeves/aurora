@@ -91,6 +91,14 @@ export type PositioningRequest = {
   config: PositioningConfig;
 };
 
+/**
+ * Not in SPEC 5.2. Host loads a show into its room, or reloads it after an
+ * edit (SPEC 2.5). Phones stay connected: the server recompiles every
+ * schedule from the new show and sends it. Refused with `show-running`
+ * while a show plays.
+ */
+export type LoadShowRequest = { type: "load"; showId: string };
+
 export type ClientMessage =
   | JoinMessage
   | SeatMessage
@@ -100,7 +108,8 @@ export type ClientMessage =
   | HostMessage
   | StartRequest
   | StopRequest
-  | PositioningRequest;
+  | PositioningRequest
+  | LoadShowRequest;
 
 export type ClientMessageType = ClientMessage["type"];
 
@@ -350,6 +359,8 @@ function toClientMessage(v: Rec): ClientMessage {
       return { type: "stop" };
     case "positioning":
       return { type: "positioning", config: positioningConfig(v.config) };
+    case "load":
+      return { type: "load", showId: str(v, "showId", MAX_ID_LENGTH) };
     default:
       throw new InvalidMessage(`unknown client message type "${v.type}"`);
   }

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
-import type { Show } from "@/lib/types";
+import type { PositioningConfig, Show } from "@/lib/types";
 import { dbPath } from "./data-dir";
 import { emptyShowInput, type ShowInput } from "./show-validation";
 
@@ -32,6 +32,13 @@ const SCHEMA = `
     updated_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS shows_updated_at ON shows (updated_at);
+  CREATE TABLE IF NOT EXISTS rooms (
+    code TEXT PRIMARY KEY,
+    host_token TEXT NOT NULL,
+    show_id TEXT NOT NULL,
+    positioning TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
 `;
 
 /** Open (or reuse) the database at `dbPath()`, creating the schema on first use. */
@@ -166,4 +173,57 @@ export function updateShow(id: string, patch: Partial<ShowInput>): Show | null {
 /** Returns false if there was no such show. */
 export function deleteShow(id: string): boolean {
   return getDb().prepare("DELETE FROM shows WHERE id = ?").run(id).changes > 0;
+}
+
+// ---------------------------------------------------------------------------
+// Rooms (SPEC 2.5): a host's session, kept so phones can rejoin the same room
+// after a server restart.
+// ---------------------------------------------------------------------------
+
+export type RoomRecord = {
+  code: string;
+  hostToken: string;
+  showId: string;
+  positioning: PositioningConfig;
+};
+
+type RoomRow = {
+  code: string;
+  host_token: string;
+  show_id: string;
+  positioning: string;
+};
+
+export function getRoom(code: string): RoomRecord | null {
+  const row = getDb()
+    .prepare(
+      "SELECT code, host_token, show_id, positioning FROM rooms WHERE code = ?",
+    )
+    .get(code) as RoomRow | undefined;
+  if (!row) return null;
+  return {
+    code: row.code,
+    hostToken: row.host_token,
+    showId: row.show_id,
+    positioning: JSON.parse(row.positioning) as PositioningConfig,
+  };
+}
+
+export function saveRoom(room: RoomRecord): void {
+  getDb()
+    .prepare(
+      `INSERT INTO rooms (code, host_token, show_id, positioning, updated_at)
+       VALUES (@code, @hostToken, @showId, @positioning, @updatedAt)
+       ON CONFLICT(code) DO UPDATE SET
+         show_id = excluded.show_id,
+         positioning = excluded.positioning,
+         updated_at = excluded.updated_at`,
+    )
+    .run({
+      code: room.code,
+      hostToken: room.hostToken,
+      showId: room.showId,
+      positioning: JSON.stringify(room.positioning),
+      updatedAt: new Date().toISOString(),
+    });
 }

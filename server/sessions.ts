@@ -5,6 +5,7 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import type { ErrorReason, ParticipantSummary } from "@/lib/protocol";
+import { crowdBox, boxChanged, fitToCrowd, type CrowdBox } from "@/lib/crowd";
 import { DEFAULT_POSITIONING } from "@/lib/positioning/seat";
 import type {
   ParticipantState,
@@ -71,7 +72,10 @@ export type Participant = {
 export type Session = {
   code: string;
   showId: string;
-  /** Snapshot of the show taken at host time (SPEC section 8). */
+  /**
+   * The show loaded into the room (SPEC 2.5): a snapshot, replaced whenever
+   * the host loads or saves a show. Phones stay connected across changes.
+   */
   show: Show;
   createdAt: number;
   /**
@@ -85,7 +89,20 @@ export type Session = {
   T0: number | null;
   /** Sizes for finding seats with the camera (SPEC 2.4), set by the host. */
   positioning: PositioningConfig;
+  /**
+   * Where the crowd is: shows are fitted to it, so seats are mapped through
+   * this box before compiling (`lib/crowd.ts`). Null until someone is seated.
+   * Not refitted while a show plays.
+   */
+  crowd: CrowdBox | null;
   participants: Map<string, Participant>;
+};
+
+/** What a restored room brings back (`server/db.ts` rooms table). */
+export type RestoredRoom = {
+  code: string;
+  hostToken: string;
+  positioning: PositioningConfig;
 };
 
 /** Thrown by store methods. `reason` maps onto the protocol `error` message. */
@@ -193,18 +210,25 @@ export class SessionStore {
 
   // -- Sessions -------------------------------------------------------------
 
-  /** Create a session for a snapshot of `show` with a fresh join code. */
-  createSession(show: Show): Session {
-    let code = generateJoinCode(this.randomInt);
-    while (this.sessions.has(code)) code = generateJoinCode(this.randomInt);
+  /**
+   * Create a session for a snapshot of `show` with a fresh join code, or
+   * bring back a stored room with its own code and host token.
+   */
+  createSession(show: Show, restore?: RestoredRoom): Session {
+    let code = restore ? normalizeJoinCode(restore.code) : "";
+    if (!restore) {
+      code = generateJoinCode(this.randomInt);
+      while (this.sessions.has(code)) code = generateJoinCode(this.randomInt);
+    }
     const session: Session = {
       code,
       showId: show.id,
       show: structuredClone(show),
       createdAt: this.now(),
-      hostToken: newHostToken(),
+      hostToken: restore?.hostToken ?? newHostToken(),
       T0: null,
-      positioning: { ...DEFAULT_POSITIONING },
+      positioning: { ...(restore?.positioning ?? DEFAULT_POSITIONING) },
+      crowd: null,
       participants: new Map(),
     };
     this.sessions.set(code, session);
@@ -390,6 +414,40 @@ export class SessionStore {
     session.positioning = { ...config };
   }
 
+  /**
+   * Load a show into the room (SPEC 2.5). Every ready participant's schedule
+   * goes stale: `scheduleVersion` is bumped, but the old schedule is kept so
+   * phones stay in standby until the new one lands. Returns the participants
+   * to recompile.
+   */
+  setShow(session: Session, show: Show): Participant[] {
+    session.showId = show.id;
+    session.show = structuredClone(show);
+    return this.staleSchedules(session);
+  }
+
+  /**
+   * Refit the crowd box to the connected, seated participants. Returns the
+   * participants to recompile when the box moved enough to matter, else [].
+   * Does nothing while a show plays, so the show keeps its shape.
+   */
+  refitCrowd(session: Session): Participant[] {
+    if (session.T0 !== null) return [];
+    const seats: Point[] = [];
+    for (const p of session.participants.values()) {
+      if (p.connected && p.seat) seats.push(p.seat);
+    }
+    const next = crowdBox(seats);
+    if (!boxChanged(session.crowd, next)) return [];
+    session.crowd = next;
+    return this.staleSchedules(session);
+  }
+
+  /** A participant's seat in show coordinates: fitted to the crowd. */
+  showSeat(session: Session, p: Participant): Point | null {
+    return p.seat ? fitToCrowd(p.seat, session.crowd) : null;
+  }
+
   /** Show starts at `T0` (server clock). Standby participants become playing. */
   startShow(session: Session, T0: number): void {
     session.T0 = T0;
@@ -404,8 +462,11 @@ export class SessionStore {
 
   // -- Views ----------------------------------------------------------------
 
+  /** For the host: positions are in show coordinates, like the clips. */
   summaries(session: Session): ParticipantSummary[] {
-    return [...session.participants.values()].map(toSummary);
+    return [...session.participants.values()].map((p) =>
+      toSummary(p, this.showSeat(session, p)),
+    );
   }
 
   countByState(session: Session): Record<ParticipantState, number> {
@@ -428,6 +489,17 @@ export class SessionStore {
     p.scheduleVersion += 1;
   }
 
+  /** Bump every ready participant's schedule version, keeping the schedule. */
+  private staleSchedules(session: Session): Participant[] {
+    const stale: Participant[] = [];
+    for (const p of session.participants.values()) {
+      if (!p.readyTapped || !p.seat) continue;
+      p.scheduleVersion += 1;
+      stale.push(p);
+    }
+    return stale;
+  }
+
   private refresh(session: Session, p: Participant): void {
     p.state = deriveState(p, session.T0 !== null, this.requireClockSync);
   }
@@ -437,11 +509,14 @@ export class SessionStore {
   }
 }
 
-export function toSummary(p: Participant): ParticipantSummary {
+export function toSummary(
+  p: Participant,
+  seat: Point | null = p.seat,
+): ParticipantSummary {
   return {
     id: p.id,
-    x: p.seat?.x ?? null,
-    y: p.seat?.y ?? null,
+    x: seat?.x ?? null,
+    y: seat?.y ?? null,
     state: p.state,
     rttMs: p.clock.rttMs,
     degraded: p.clock.degraded,
