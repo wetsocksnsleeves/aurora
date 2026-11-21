@@ -15,10 +15,14 @@ import {
 } from "@/app/sessions/host-client";
 import type { ClockSyncEnv } from "@/lib/clock-sync";
 import { rawUpgrade } from "./testing/raw-upgrade";
+import { withTempDataDir } from "./testing/temp-data-dir";
 import { TestClient } from "./testing/ws-client";
 import { spawnServer, type SpawnedServer } from "./testing/spawn-server";
 
 let server: SpawnedServer;
+
+// Registered before spawnServer, so the child inherits LIGHTSHOW_DATA_DIR.
+withTempDataDir();
 
 beforeAll(async () => {
   server = await spawnServer();
@@ -78,6 +82,24 @@ describe("custom server", () => {
 
     await Promise.all([host.close(), phone.close()]);
   });
+
+  it("accepts audio uploads over proxy.ts's 10 MB body buffer", async () => {
+    // A file proxy.ts matches has its body cut at 10 MB without an error,
+    // so the upload route must not be matched by it.
+    const size = 12 * 1024 * 1024;
+    const form = new FormData();
+    form.set("file", new File([new Uint8Array(size)], "big.wav"));
+    const res = await fetch(`${server.httpUrl}/api/audio`, {
+      method: "POST",
+      body: form,
+    });
+    expect(res.status).toBe(201);
+    const { url } = (await res.json()) as { url: string };
+    const stored = await fetch(`${server.httpUrl}${url}`, {
+      headers: { range: "bytes=0-0" },
+    });
+    expect(stored.headers.get("content-range")).toBe(`bytes 0-0/${size}`);
+  }, 60_000);
 
   it("rejects upgrades on unknown paths and closes the socket", async () => {
     const result = await rawUpgrade(server.port, "/nope");
