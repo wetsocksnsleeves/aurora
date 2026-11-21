@@ -9,8 +9,9 @@
  *
  * Each song gets an equal share of `--seconds`. Its stretch starts
  * `--lead-bars` bars before a drop, so the build-up plays into it, and of
- * the drops that fit, the one with the loudest stretch wins. Songs are
- * levelled to the quietest stretch. Needs `ffmpeg` on PATH.
+ * the drops that fit, the one with the loudest stretch wins. Stretches are
+ * levelled to the same loudness, then compressed and limited together
+ * (`MASTER`). Needs `ffmpeg` on PATH.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -30,6 +31,20 @@ import { parseShowPatch } from "@/server/show-validation";
  */
 const ANALYSIS_RATE = 24_000;
 const OUTPUT_RATE = 48_000;
+
+/** Each stretch is turned to this integrated loudness before mastering. */
+const SECTION_LUFS = -10;
+
+/**
+ * Mastering on the joined audio. The compressor (3:1 above -18 dB RMS, then
+ * +6.8 dB makeup) narrows the gap between build-ups and drops, and the
+ * limiter keeps peaks under -2 dBFS so the mp3 stays below -1 dBTP. Neither
+ * adds delay (`latency=1` compensates the limiter's lookahead), so the audio
+ * stays in step with the lights.
+ */
+const MASTER =
+  "acompressor=threshold=0.125:ratio=3:attack=10:release=200:knee=4:detection=rms:makeup=2.2," +
+  "alimiter=limit=0.8:attack=2:release=50:level=0:latency=1";
 
 const HELP = `Usage: npx tsx scripts/mixtape.ts <audio file>... --audio OUT.mp3 --json OUT.json
 
@@ -244,20 +259,19 @@ function renderAudio(
   const trim = (c: (typeof cuts)[number]) =>
     `atrim=start=${c.fromMs / 1000}:end=${c.toMs / 1000},asetpts=PTS-STARTPTS`;
   const loudness = cuts.map((c) => integratedLoudness(c.file, trim(c)));
-  // Turn every stretch down to the quietest, so nothing needs a limiter.
-  const target = Math.min(...loudness);
   const chains = cuts.map((c, i) => {
     const sec = (c.toMs - c.fromMs) / 1000;
     const fade = fadeMs / 1000;
     return (
       `[${i}:a]${trim(c)},aresample=${OUTPUT_RATE},` +
-      `volume=${(target - loudness[i]!).toFixed(2)}dB,` +
+      `volume=${(SECTION_LUFS - loudness[i]!).toFixed(2)}dB,` +
       `afade=t=in:d=0.005,afade=t=out:st=${(sec - fade).toFixed(3)}:d=${fade}[a${i}]`
     );
   });
   const graph =
     chains.join(";") +
-    `;${cuts.map((_, i) => `[a${i}]`).join("")}concat=n=${cuts.length}:v=0:a=1[out]`;
+    `;${cuts.map((_, i) => `[a${i}]`).join("")}concat=n=${cuts.length}:v=0:a=1,` +
+    `${MASTER}[out]`;
   run([
     "-y",
     ...cuts.flatMap((c) => ["-i", c.file]),
@@ -272,7 +286,9 @@ function renderAudio(
     out,
   ]);
   loudness.forEach((l, i) =>
-    console.log(`  ${path.basename(cuts[i]!.file)}: ${l} LUFS -> ${target}`),
+    console.log(
+      `  ${path.basename(cuts[i]!.file)}: ${l} LUFS -> ${SECTION_LUFS}`,
+    ),
   );
 }
 
