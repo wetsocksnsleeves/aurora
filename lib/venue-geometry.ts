@@ -67,3 +67,18 @@ export function shapeAt(venue: Venue, p: Point): string | null {
   }
   return null;
 }
+
+/** A uniformly random point inside the venue's shapes. */
+export function randomSeat(venue: Venue, random: () => number): Point {
+  const points = venue.shapes.flatMap((s) => s.points);
+  if (points.length === 0) return { x: random(), y: random() };
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const [x0, x1] = [Math.max(0, Math.min(...xs)), Math.min(1, Math.max(...xs))];
+  const [y0, y1] = [Math.max(0, Math.min(...ys)), Math.min(1, Math.max(...ys))];
+  for (let i = 0; i < 1000; i++) {
+    const p = { x: x0 + (x1 - x0) * random(), y: y0 + (y1 - y0) * random() };
+    if (shapeAt(venue, p) !== null) return p;
+  }
+  return points[0]!;
+}

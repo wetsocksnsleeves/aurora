@@ -85,6 +85,9 @@ export type HostClientListener = {
   onClose?: (willReconnect: boolean) => void;
 };
 
+/** localStorage key holding the code of the room this laptop hosts. */
+export const ROOM_STORAGE_KEY = "lightshow-room";
+
 export function hostStorageKey(code: string): string {
   return `lightshow.host.${code.toUpperCase()}`;
 }

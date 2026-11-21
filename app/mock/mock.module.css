@@ -28,9 +28,114 @@
   font-weight: 300;
 }
 
+/* -- 3D room: the participant RoomView, scaled up to fill the page ------- */
+
 .stage {
   position: absolute;
   inset: 0;
+  display: grid;
+  place-items: center;
+  perspective: 110vmin;
+  perspective-origin: 50% 30%;
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+
+.stage:active {
+  cursor: grabbing;
+}
+
+/* `--yaw`, `--pitch` and `--zoom` come from orbit.ts. */
+.world {
+  transform-style: preserve-3d;
+  transform: translateY(4vmin) scale(var(--zoom, 1))
+    rotateX(var(--pitch, 60deg)) rotateZ(var(--yaw, 0deg));
+}
+
+/*
+ * The venue box as an LED floor in the room's proportions (`--fw`, `--fh`
+ * from the page, the longer side 1). y = 0 (the screen side) is the far
+ * edge. Sizes below are fractions of `--floor` so the room scales as one.
+ */
+.floor {
+  --floor: min(72vmin, 52rem);
+  position: relative;
+  width: calc(var(--floor) * var(--fw, 1));
+  height: calc(var(--floor) * var(--fh, 1));
+  transform-style: preserve-3d;
+  border-radius: calc(var(--floor) * 0.025);
+  background:
+    radial-gradient(
+      ellipse 60% 40% at 50% 0%,
+      rgb(255 255 255 / 0.1),
+      transparent
+    ),
+    linear-gradient(
+      to bottom,
+      rgb(255 255 255 / 0.06),
+      rgb(255 255 255 / 0.012)
+    );
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.outline {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Quieter than the host map's outline, so the phones carry the light. */
+.outline polygon {
+  fill: rgb(255 255 255 / 0.025);
+  stroke: rgb(255 255 255 / 0.22);
+}
+
+/* Stands up from the floor's far edge, lifted a little off the floor. */
+.screen {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  aspect-ratio: 16 / 9;
+  transform: translate3d(-50%, 0, calc(var(--floor) * 0.04)) rotateX(-90deg);
+  transform-origin: 50% 100%;
+  border-radius: calc(var(--floor) * 0.008);
+  background: #fff;
+  box-shadow:
+    0 0 calc(var(--floor) * 0.08) rgb(255 255 255 / 0.4),
+    0 0 calc(var(--floor) * 0.01) rgb(255 255 255 / 0.8);
+}
+
+.crowd {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  pointer-events: none;
+}
+
+/*
+ * One phone, held upright in portrait at chest height: placed at its seat,
+ * folded up about its bottom edge, parallel to the screen. crowd.ts sets
+ * `--phone` (width as a fraction of the floor) and `--led`. Square corners:
+ * rounding hundreds of 3D layers cost 5x the frame time in Chrome.
+ */
+.phone {
+  --w: calc(var(--floor) * var(--phone, 0.02));
+  position: absolute;
+  width: var(--w);
+  height: calc(var(--w) * 2);
+  margin: calc(var(--w) * -2) 0 0 calc(var(--w) * -0.5);
+  transform-origin: 50% 100%;
+  transform: translateZ(calc(var(--floor) * 0.02)) rotateX(-90deg);
+  background: var(--led, rgb(20 20 20));
+}
+
+/* Glow only for small crowds; it halves the frame rate for large ones. */
+.crowd[data-glow] .phone {
+  box-shadow: 0 0 calc(var(--w) * 0.8) var(--led, transparent);
 }
 
 .top {
@@ -46,6 +151,8 @@
 }
 
 .wordmark {
+  pointer-events: auto;
+  text-decoration: none;
   font-size: 1.35rem;
   letter-spacing: -0.03em;
   background: var(--rainbow);
@@ -76,12 +183,8 @@
   color: var(--faint);
 }
 
-.fine code {
-  font-family: inherit;
-  color: var(--dim);
-}
-
-.waiting {
+/* Code form, connecting and error states, over the middle of the page. */
+.centre {
   position: absolute;
   inset: 0;
   display: flex;
@@ -89,8 +192,102 @@
   align-items: center;
   justify-content: center;
   gap: 1rem;
+  padding: 0 1.5rem;
   text-align: center;
-  pointer-events: none;
+}
+
+.message {
+  margin: 0;
+  max-width: 26rem;
+  font-size: 1.1rem;
+  line-height: 1.5;
+}
+
+.codeInput {
+  width: 12ch;
+  padding: 0.5rem 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 2.6rem;
+  font-weight: 300;
+  letter-spacing: 0.18em;
+  text-align: center;
+  text-transform: uppercase;
+  outline: none;
+}
+
+.codeInput:focus {
+  border-bottom-color: var(--dim);
+}
+
+.watch {
+  min-width: 12rem;
+  min-height: 3rem;
+  padding: 0 1.5rem;
+  border: 0;
+  border-radius: 0.75rem;
+  background: #fff;
+  color: #000;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 3rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+/* -- Side panel: simulated phones ---------------------------------------- */
+
+.panel {
+  position: absolute;
+  top: 50%;
+  right: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 15rem;
+  padding: 1.25rem;
+  transform: translateY(-50%);
+  border-radius: 1rem;
+  background: rgb(255 255 255 / 0.04);
+  box-shadow: inset 0 0 0 1px var(--line);
+  backdrop-filter: blur(12px);
+}
+
+.countInput {
+  width: 100%;
+  padding: 0.25rem 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 2.6rem;
+  font-weight: 300;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+
+.countInput:focus {
+  border-bottom-color: var(--dim);
+}
+
+.countInput[aria-invalid="true"] {
+  border-bottom-color: #ef4444;
+}
+
+@media (max-width: 720px) {
+  .panel {
+    top: 4rem;
+    left: 1rem;
+    right: 1rem;
+    width: auto;
+    transform: none;
+  }
 }
 
 .stats {
